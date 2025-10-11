@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS 
 from datetime import datetime, timezone
 from threading import Thread
 import time
@@ -14,6 +15,14 @@ user_stats = {}  # { wallet: {participated, succeeded, total_amount} }
 # n8n webhook URL
 N8N_WEBHOOK_URL = "https://larrycoder123.app.n8n.cloud/webhook/fetch-fit"
 
+# Enable CORS for all routes
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:8080", "http://localhost:5173"],  # Add your frontend URLs
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 
 class Challenge:
     """
