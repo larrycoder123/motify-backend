@@ -6,9 +6,10 @@ import requests
 
 app = Flask(__name__)
 
-# In-memory store for challenges
+# In-memory store for challenges and user stats
 challenges = {}
 challenge_id_counter = 1
+user_stats = {}  # { wallet: {participated, succeeded, total_amount} }
 
 # n8n webhook URL
 N8N_WEBHOOK_URL = "https://larrycoder123.app.n8n.cloud/webhook/fetch-fit"
@@ -30,7 +31,7 @@ class Challenge:
         self.end_date = datetime.fromisoformat(end_date)
         self.contract_address = contract_address  # charity contract
         self.goal = goal
-        self.participants = []  # list of dicts: {walletAddress, amountUsd}
+        self.participants = []  # [{walletAddress, amountUsd}]
         self.completed = False
 
     def to_dict(self):
@@ -69,6 +70,19 @@ def call_n8n_api(wallet_address, start_date, end_date, goal):
         return None
 
 
+def update_user_stats(wallet, amount, succeeded):
+    """Safely update user stats in global user_stats dict."""
+    stats = user_stats.get(
+        wallet, {"participated": 0, "succeeded": 0, "total_amount": 0.0})
+
+    stats["participated"] += 1
+    stats["total_amount"] += amount
+    if succeeded:
+        stats["succeeded"] += 1
+
+    user_stats[wallet] = stats
+
+
 def monitor_challenges():
     """
     Background task that checks if challenges have ended and triggers n8n.
@@ -79,20 +93,29 @@ def monitor_challenges():
             if not challenge.completed and challenge.end_date < now:
                 challenge.completed = True
                 print(
-                    f"[EVENT] Challenge '{challenge.name}' ended. Fetching data from n8n for participants...")
+                    f"[EVENT] Challenge '{challenge.name}' ended. Finalizing results...")
 
                 for participant in challenge.participants:
                     wallet = participant["walletAddress"]
+                    amount = participant["amountUsd"]
+
+                    # Fetch final progress from n8n once
                     result = call_n8n_api(
                         wallet_address=wallet,
                         start_date=challenge.start_date.date().isoformat(),
                         end_date=challenge.end_date.date().isoformat(),
                         goal=challenge.goal
                     )
-                    if result is not None:
-                        print(f"[n8n RESPONSE] {wallet}: {result}")
-                    else:
-                        print(f"[n8n ERROR] Failed to fetch data for {wallet}")
+
+                    succeeded = False
+                    if result and all(day.get("achieved") for day in result):
+                        succeeded = True
+
+                    update_user_stats(wallet, amount, succeeded)
+
+                    print(f"[RESULT] Wallet {wallet} {'succeeded' if succeeded else 'failed'} "
+                          f"in '{challenge.name}' ({amount} USD)")
+
         time.sleep(5)
 
 
@@ -192,7 +215,34 @@ def get_progress(challenge_id):
     if result is None:
         return jsonify({"error": "Failed to fetch data from n8n"}), 502
 
-    return jsonify(result), 200
+    # Add a summary field: success so far (if all achieved so far are true)
+    all_achieved = all(day.get("achieved") for day in result)
+    response = {
+        "progress": result,
+        "currentlySucceeded": all_achieved
+    }
+
+    return jsonify(response), 200
+
+
+@app.route("/users/<wallet_address>/stats", methods=["GET"])
+def get_user_stats(wallet_address):
+    """
+    Return stored stats for a user (computed when challenges ended).
+    """
+    stats = user_stats.get(wallet_address)
+    if not stats:
+        return jsonify({
+            "totalChallengesParticipated": 0,
+            "totalChallengesSucceeded": 0,
+            "totalAmountContributedUsd": 0.0
+        }), 200
+
+    return jsonify({
+        "totalChallengesParticipated": stats["participated"],
+        "totalChallengesSucceeded": stats["succeeded"],
+        "totalAmountContributedUsd": stats["total_amount"]
+    }), 200
 
 
 if __name__ == "__main__":
