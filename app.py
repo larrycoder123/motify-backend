@@ -171,8 +171,6 @@ def join_challenge(challenge_id):
         return jsonify({"error": "Missing 'walletAddress'"}), 400
     if amount is None:
         return jsonify({"error": "Missing 'amountUsd'"}), 400
-    if not isinstance(amount, (int, float)) or amount < 1:
-        return jsonify({"error": "Minimum participation amount is 1 USD"}), 400
 
     challenge = challenges.get(challenge_id)
     if not challenge:
@@ -249,14 +247,8 @@ def get_user_stats(wallet_address):
         "totalChallengesSucceeded": stats["succeeded"],
         "totalAmountContributedUsd": stats["total_amount"]
     }), 200
-# ==============================================================================
-# DEMO DATA GENERATION (CORRECTED)
-# ==============================================================================
 
 
-# ==============================================================================
-# DEMO DATA GENERATION (MOTIVATIONAL VERSION)
-# ==============================================================================
 def create_demo_data():
     """
     Populates the server with creative and motivational challenges for demonstration.
@@ -264,7 +256,6 @@ def create_demo_data():
     global challenges, user_stats
     now = datetime.now(timezone.utc)
 
-    # --- Challenge 1: Active Challenge ---
     c1 = Challenge(
         name="Sunrise Warrior",
         description="Embrace the power of the morning! For 10 days, get 15 active minutes before 8 AM. Meditate, stretch, or take a brisk walk. Reclaim your day, one sunrise at a time. Funds support mental health initiatives.",
@@ -279,7 +270,6 @@ def create_demo_data():
     ]
     challenges[c1.id] = c1
 
-    # --- Challenge 2: Completed Challenge ---
     c2 = Challenge(
         name="The Everest Step Climb",
         description="Conquer the world's highest peak from your own neighborhood! This completed challenge had participants climb 8,848 meters in elevation gain over one month. Every step up was a step towards a stronger you and supported global environmental cleanup.",
@@ -299,7 +289,6 @@ def create_demo_data():
     c2.completed = True
     challenges[c2.id] = c2
 
-    # --- Challenge 3: Future Challenge ---
     c3 = Challenge(
         name="The Phoenix Run",
         description="Rise from the ashes of your comfort zone. Starting next week, this 5-day challenge is about consistency, not speed. Run or walk at least 1 mile (1.6km) every single day. Prove to yourself that you can show up, rain or shine. Proceeds go to youth sports programs.",
