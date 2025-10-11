@@ -71,7 +71,9 @@ def call_n8n_api(wallet_address, start_date, end_date, goal):
 
 
 def update_user_stats(wallet, amount, succeeded):
-    """Safely update user stats in global user_stats dict."""
+    """
+    Safely update user stats in global user_stats dict.
+    """
     stats = user_stats.get(
         wallet, {"participated": 0, "succeeded": 0, "total_amount": 0.0})
 
