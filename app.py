@@ -197,8 +197,11 @@ def get_progress(challenge_id):
     Fetch current progress for ONE wallet address in a given challenge.
     """
     data = request.get_json()
+    goal = data.get("goal")
     wallet = data.get("walletAddress")
 
+    if not goal:
+        return jsonify({"error": "Missing 'goal'"}), 400
     if not wallet:
         return jsonify({"error": "Missing 'walletAddress'"}), 400
 
@@ -213,7 +216,7 @@ def get_progress(challenge_id):
         wallet_address=wallet,
         start_date=challenge.start_date.date().isoformat(),
         end_date=challenge.end_date.date().isoformat(),
-        goal=challenge.goal
+        goal=goal
     )
 
     if result is None:
