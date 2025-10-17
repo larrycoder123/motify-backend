@@ -1,0 +1,7 @@
+{
+  "title": "Steps",
+  "start_at": "2025-10-01T00:00:00Z",
+  "end_at": "2025-10-07T00:00:00Z",
+  "target_metric": "activity_minutes",
+  "target_value": 30
+}

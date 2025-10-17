@@ -20,9 +20,9 @@ async def integration_callback(provider: str):
     return {"provider": provider, "linked": True}
 
 
-@router.get("")
-async def list_integrations(wallet: str):
-    return {"wallet": wallet, "providers": []}
+#@router.get("")
+#async def list_integrations(wallet: str):
+    #return {"wallet": wallet, "providers": []}
 
 
 @router.delete("/{provider}")

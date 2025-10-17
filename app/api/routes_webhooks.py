@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, HTTPException
-from core.security import verify_n8n_hmac
-from core.config import settings
+from app.core.security import verify_n8n_hmac
+from app.core.config import settings
 from app.models.db import SupabaseDAL, Proof
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
