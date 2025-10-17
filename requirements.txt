@@ -2,3 +2,9 @@ gunicorn
 flask
 requests
 flask-cors
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+pytest
+supabase

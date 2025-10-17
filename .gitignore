@@ -1,0 +1,51 @@
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+.mypy_cache/
+.pytype/
+.dmypy.json
+
+# IDE/editor
+.vscode/
+.idea/
+*.code-workspace
+
+# Environment & secrets
+.env
+*.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Logs & temp
+logs/
+*.log
+.DS_Store
+Thumbs.db
+
+# Coverage
+.coverage
+htmlcov/
+coverage.xml
+
+# Node (if any frontend snippets)
+node_modules/
+
+# Local data
+.tmp/
+.cache/
