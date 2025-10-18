@@ -68,12 +68,20 @@ create table if not exists stakes (
   token_address text,
   decimals int,
   tx_hash_deposit text,
+  joined_block_number bigint,
+  joined_at timestamptz default now(),
   joined_via text,
   unique (challenge_id, user_wallet)
 );
 
 -- Migration-safe: ensure token-agnostic stake amount column exists
 alter table if exists stakes add column if not exists amount_minor_units numeric(78,0);
+alter table if exists stakes add column if not exists joined_block_number bigint;
+alter table if exists stakes add column if not exists joined_at timestamptz default now();
+
+-- Helpful indexes for frequent lookups
+create index if not exists idx_stakes_challenge on stakes(challenge_id);
+create index if not exists idx_stakes_wallet on stakes(user_wallet);
 
 create table if not exists proofs (
   id bigserial primary key,

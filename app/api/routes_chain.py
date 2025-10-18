@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.models.db import SupabaseDAL
-from app.services.chain_handlers import handle_challenge_created_event
+from app.services.chain_handlers import handle_challenge_created_event, handle_joined_challenge_event
 
 
 router = APIRouter(prefix="/chain", tags=["chain"], include_in_schema=True)
@@ -17,6 +17,16 @@ class ChallengeCreatedSim(BaseModel):
     description_hash: Optional[str] = None
     created_tx_hash: Optional[str] = None
     created_block_number: Optional[int] = None
+class JoinedChallengeSim(BaseModel):
+    # Either pass db_challenge_id or (contract_address + on_chain_challenge_id)
+    db_challenge_id: Optional[int] = None
+    contract_address: Optional[str] = None
+    on_chain_challenge_id: Optional[int] = None
+    user_wallet: str
+    amount_minor_units: int
+    tx_hash: Optional[str] = None
+    block_number: Optional[int] = None
+
 
 
 @router.post("/challenges/created")
@@ -47,4 +57,30 @@ async def simulate_challenge_created(payload: ChallengeCreatedSim):
     except Exception as e:
         raise HTTPException(500, detail={
             "error": {"code": "INTERNAL", "message": "Chain simulate failed", "details": {"type": type(e).__name__, "message": str(e)}}
+        })
+
+
+@router.post("/challenges/joined")
+async def simulate_joined_challenge(payload: JoinedChallengeSim):
+    """Dev-only simulate endpoint: record an on-chain join (JoinedChallenge)."""
+    dal = SupabaseDAL.from_env()
+    if not dal:
+        raise HTTPException(503, detail={"error": {"code": "SERVICE_UNAVAILABLE", "message": "DB not configured", "details": {}}})
+    try:
+        res = handle_joined_challenge_event(
+            dal,
+            contract_address=payload.contract_address,
+            on_chain_challenge_id=payload.on_chain_challenge_id,
+            db_challenge_id=payload.db_challenge_id,
+            user_wallet=payload.user_wallet,
+            amount_minor_units=payload.amount_minor_units,
+            tx_hash=payload.tx_hash,
+            block_number=payload.block_number,
+        )
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, detail={
+            "error": {"code": "INTERNAL", "message": "Chain simulate (joined) failed", "details": {"type": type(e).__name__, "message": str(e)}}
         })

@@ -97,7 +97,25 @@ def create_app() -> FastAPI:
                     except Exception:
                         # swallow to keep listener alive; logs are emitted in handler
                         logging.exception("[chain] handler failed for event: %s", event)
-                listener.poll_loop(_handle)
+                from app.services.chain_handlers import handle_joined_challenge_event
+                def _handle_joined(evt: dict):
+                    if not dal:
+                        return
+                    try:
+                        logging.info("[chain] JoinedChallenge id=%s user=%s amount=%s", evt.get("challenge_id"), evt.get("user"), evt.get("amount"))
+                        handle_joined_challenge_event(
+                            dal,
+                            contract_address=settings.MOTIFY_CONTRACT_ADDRESS,
+                            on_chain_challenge_id=int(evt.get("challenge_id")),
+                            user_wallet=str(evt.get("user") or ""),
+                            amount_minor_units=int(evt.get("amount") or 0),
+                            tx_hash=(evt.get("transactionHash") or None),
+                            block_number=(evt.get("blockNumber") or None),
+                        )
+                    except Exception:
+                        logging.exception("[chain] handler failed for JoinedChallenge: %s", evt)
+
+                listener.poll_loop(_handle, _handle_joined)
             except Exception:
                 # Never crash the app if listener fails to start
                 logging.exception("[chain] listener failed to start")

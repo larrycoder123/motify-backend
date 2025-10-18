@@ -25,12 +25,7 @@ class ChallengeCreate(BaseModel):
     on_chain_challenge_id: Optional[int] = None
 
 
-class JoinPayload(BaseModel):
-    user_wallet: str
-    # Primary (USDC or other ERC20): token smallest unit amount (e.g., USDC 6 decimals)
-    amount_minor_units: Optional[str] = None
-    # Back-compat: accept legacy ETH naming; if provided and primary is missing, we use this value
-    amount_wei: Optional[str] = None
+# Note: Joining a challenge now happens on-chain via events; no HTTP join endpoint.
 
 
 @router.get("/")
@@ -118,28 +113,65 @@ async def create_challenge(payload: ChallengeCreate):
         )
 
 
-@router.post("/{challenge_id}/join")
-async def join_challenge(challenge_id: int, payload: JoinPayload):
-    if int(challenge_id) < 1:
-        raise HTTPException(404, detail={"error": {"code": "NOT_FOUND", "message": "challenge not found", "details": {"id": challenge_id}}})
+@router.get("/chain/{on_chain_challenge_id}")
+async def get_challenge_by_chain_id(on_chain_challenge_id: int, contractAddress: Optional[str] = None):
+    """Fetch a challenge by its on-chain challenge id, scoped to the configured contract address.
+    Useful for FE flows that reference challenges by the chain id.
+    """
     dal = SupabaseDAL.from_env()
     if not dal:
-        # Fallback echo without DB
-        amt = payload.amount_minor_units or payload.amount_wei
-        return {"challenge_id": challenge_id, "user_wallet": payload.user_wallet, "amount_minor_units": amt}
+        raise HTTPException(503, detail={"error": {"code": "SERVICE_UNAVAILABLE", "message": "DB not configured", "details": {}}})
     try:
-        # ensure user exists (idempotent upsert into users)
-        dal.client.table("users").upsert({"wallet": payload.user_wallet}).execute()
-        amt = payload.amount_minor_units or payload.amount_wei
-        if amt is None:
-            raise HTTPException(400, detail={"error": {"code": "VALIDATION_FAILED", "message": "amount required", "details": {}}})
-        stake_payload = {
-            "challenge_id": challenge_id,
-            "user_wallet": payload.user_wallet,
-            "amount_minor_units": amt,
-        }
-        insert_resp = dal.client.table("stakes").upsert(stake_payload, on_conflict="challenge_id,user_wallet").execute()
-        data = getattr(insert_resp, "data", [])
-        return data[0] if data else stake_payload
+        q = dal.client.table("challenges").select("*")
+        contract = contractAddress or settings.MOTIFY_CONTRACT_ADDRESS
+        if contract:
+            q = q.eq("contract_address", contract)
+        q = q.eq("on_chain_challenge_id", on_chain_challenge_id).order("id", desc=True).limit(1)
+        resp = q.execute()
+        rows = getattr(resp, "data", [])
+        if not rows:
+            raise HTTPException(404, detail={"error": {"code": "NOT_FOUND", "message": "challenge not found", "details": {"on_chain_challenge_id": on_chain_challenge_id}}})
+        return rows[0]
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(500, detail={"error": {"code": "INTERNAL", "message": "DB upsert failed", "details": {"type": type(e).__name__}}})
+        raise HTTPException(500, detail={"error": {"code": "INTERNAL", "message": "DB error", "details": {"type": type(e).__name__}}})
+
+
+@router.get("/chain/{on_chain_challenge_id}/participants")
+async def list_participants_by_chain_id(on_chain_challenge_id: int, contractAddress: Optional[str] = None):
+    """List participants (stakes) for a challenge by on-chain id.
+    Returns stake rows; FE can map fields it needs.
+    """
+    dal = SupabaseDAL.from_env()
+    if not dal:
+        return []
+    try:
+        # First resolve DB id
+        cq = dal.client.table("challenges").select("id")
+        contract = contractAddress or settings.MOTIFY_CONTRACT_ADDRESS
+        if contract:
+            cq = cq.eq("contract_address", contract)
+        cq = cq.eq("on_chain_challenge_id", on_chain_challenge_id).order("id", desc=True).limit(1)
+        c = cq.execute()
+        rows = getattr(c, "data", [])
+        if not rows:
+            raise HTTPException(404, detail={"error": {"code": "NOT_FOUND", "message": "challenge not found", "details": {"on_chain_challenge_id": on_chain_challenge_id}}})
+        db_id = rows[0]["id"]
+        # Fetch stakes for the resolved challenge
+        s = (
+            dal.client.table("stakes")
+            .select("user_wallet, amount_minor_units, joined_via, tx_hash_deposit")
+            .eq("challenge_id", db_id)
+            .order("id", desc=True)
+            .limit(500)
+            .execute()
+        )
+        return getattr(s, "data", [])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, detail={"error": {"code": "INTERNAL", "message": "DB error", "details": {"type": type(e).__name__}}})
+
+
+    
