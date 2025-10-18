@@ -17,12 +17,21 @@ async def ingest_proof(challenge_id: int, request: Request):
         raise e
     payload = await request.json()
     dal = SupabaseDAL.from_env()
-    if dal is None:
-        # DB not configured yet; accept payload
+    # Only allow storing when service role key is configured (bypasses RLS).
+    if dal is None or not settings.SUPABASE_SERVICE_ROLE_KEY:
+        # DB not configured or missing service role; accept but do not store to avoid RLS violations.
         return {"status": "accepted", "challenge_id": challenge_id, "stored": False}
+    # Ensure user exists to satisfy FK on proofs.user_wallet
+    user_wallet = payload.get("user_wallet")
+    if user_wallet:
+        try:
+            dal.client.table("users").upsert({"wallet": user_wallet}).execute()
+        except Exception:
+            # Don't fail webhook on user upsert; proof insert will surface errors if critical
+            pass
     proof = Proof(
         challenge_id=challenge_id,
-        user_wallet=payload.get("user_wallet"),
+        user_wallet=user_wallet,
         provider=payload.get("provider"),
         metric=payload.get("metric"),
         value=int(payload.get("value", 0)),

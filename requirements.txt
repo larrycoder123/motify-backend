@@ -8,3 +8,6 @@ pydantic
 pydantic-settings
 pytest
 supabase
+python-dotenv
+eth-utils
+web3

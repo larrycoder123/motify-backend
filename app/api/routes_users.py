@@ -25,8 +25,8 @@ async def get_user_stats(wallet: str):
         "wallet": wallet,
         "challenges_joined": 0,
         "challenges_completed": 0,
-        "total_staked_wei": "0",
-        "total_refunded_wei": "0",
-        "total_donated_wei": "0",
+    "total_staked_minor_units": "0",
+    "total_refunded_minor_units": "0",
+    "total_donated_minor_units": "0",
         "last_active_at": None,
     }

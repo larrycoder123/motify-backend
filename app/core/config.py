@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     MOTIFY_CONTRACT_ADDRESS: str | None = None
     MOTIFY_CONTRACT_ABI_PATH: str | None = None
     SERVER_SIGNER_PRIVATE_KEY: str | None = None
+    # Chain listener
+    ENABLE_CHAIN_LISTENER: bool = False
+    CHAIN_CONFIRMATIONS: int = 2
+    CHAIN_POLL_SECONDS: float = 5.0
 
     class Config:
         env_file = ".env"

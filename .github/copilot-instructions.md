@@ -1,69 +1,67 @@
 # Copilot instructions for motify-backend
 
-## What is this? 
-This file contains instructions for GitHub Copilot to help it generate relevant code and text for this repository. It includes an overview of the app, its architecture, key routes, conventions, developer workflows, and target architecture for future development.
+## What is this?
+This file guides GitHub Copilot to generate relevant code and docs for this repository. It summarizes the app’s purpose, current architecture, routes, workflows, conventions, and the target design. Use it as a context primer when adding or modifying code.
 
 ## Repository info
-This is the repository for the backend. The frontend is in a separate repo. The contract is also separte. There is a folder called zold_backend which contains a previous version of the backend that is no longer in use.
+- This is the backend repo. The frontend lives in a separate repo. The smart contract is also separate.
+- `zold_backend/` contains an earlier Flask prototype that is no longer in use. The active service is FastAPI under `app/`.
 
-## About the App
-Motify is a Base-chain (L2 ETH) accountability app. Users stake into on-chain challenges, provide proof (Strava activity, GitHub commits), and receive proportional refunds; the failed portion goes to a predefined wallet (e.g., charity). Platform takes 10% of the failed portion; 5% of that fee fuels $MOTIFY rewards (handled in the contract).
+## About the app
+Motify is a Base-chain (L2 ETH) accountability app. Users stake into on-chain challenges, provide proofs (Strava/GitHub), and receive proportional refunds; the failed portion goes to a predefined wallet (e.g., charity). The platform takes 10% of the failed portion; 5% of that fee fuels $MOTIFY rewards (handled on-chain).
 
-## Architecture & data flow
-- Single service in `app.py` using Flask + CORS + `requests`.
-- In-memory globals: `challenges: {id -> Challenge}`, `user_stats: {wallet -> {participated, succeeded, total_amount}}`, `challenge_id_counter`.
-- `Challenge` holds: `name, description, start_date, end_date, contract_address, goal, participants[{walletAddress, amountUsd}], completed`.
-- Background worker `monitor_challenges()` (daemon thread) runs every 5s:
-	- When a challenge’s `end_date` passes, marks it `completed` and for each participant calls n8n (`N8N_WEBHOOK_URL`) once to compute final success.
-	- Expects n8n to return a list of day objects with `achieved` booleans; success = `all(day.achieved)`.
-- CORS is restricted to: `https://motify-nine.vercel.app`, `http://localhost:8080`, `http://localhost:5173`.
+## Current architecture & data flow
+- Framework: FastAPI app in `app/main.py` with modular routers in `app/api/` and service layers in `app/services/`.
+- Data: Supabase (Postgres) via supabase-py with RLS. Schema is defined in `docs/schema.sql`.
+- Chain: Optional listener (web3.py) that tails the Motify contract for events; updates challenges when on-chain `ChallengeCreated` fires.
+- Workflows: n8n handles OAuth/provider fetching/normalization and posts proofs to the backend webhook with HMAC.
+- CORS: Allowed dev origins are configured in `app/main.py` and widened per environment.
 
-## HTTP API (key routes)
-- POST `/challenges` → create challenge. Body keys: `name, description, start_date, end_date, contract_address, goal` (ISO8601 dates).
-- GET `/challenges` → list challenges.
-- POST `/challenges/<int:id>/join` → join challenge. Body: `{ walletAddress, amountUsd }` (wallet deduped).
-- POST `/challenges/<int:id>/progress` → on-demand progress for one wallet. Body: `{ goal, walletAddress }`. Returns `{ progress: [from n8n], currentlySucceeded: bool }`.
-- GET `/users/<wallet>/stats` → aggregated counters computed when challenges complete.
+### HTTP API (key routes)
+- POST `/challenges/` → create a challenge (status=pending). Body keys: `name, description, start_date, end_date, contract_address, goal, owner_wallet?, on_chain_challenge_id?, description_hash?`.
+- GET `/challenges/` → list challenges (selects `*` to be schema-forward-compatible). Includes `created_tx_hash` and `created_block_number` when present.
+- GET `/challenges/{id}` → fetch a single challenge by id.
+- POST `/challenges/{id}/join` → join challenge. Body: `{ user_wallet, amount_minor_units }` (backward-compatible: accepts `amount_wei` and maps it to `amount_minor_units`); idempotent upsert on `(challenge_id, user_wallet)`.
+- POST `/webhooks/proofs/{challenge_id}` → n8n webhook; verifies HMAC; upserts proof by `idempotency_key` when service-role key is present. Responds `{ status: "accepted", stored: bool }`.
+- GET `/health` → `{ ok: true, db: bool }`.
 
-## Conventions & gotchas
-- JSON field style: participant fields use camelCase (`walletAddress`, `amountUsd`). Keep consistency when adding endpoints.
-- Dates: parsed with `datetime.fromisoformat()`. Provide timezone-aware values (e.g., `2025-10-17T12:00:00+00:00`) to avoid naive vs aware comparison when checked against `datetime.now(timezone.utc)` in the monitor.
-- State is in-memory and resets on process restart; concurrency is single-process, not safe for multi-worker without external store.
-- The background thread starts only under `if __name__ == "__main__":` (local dev). If running under a WSGI server (e.g., gunicorn), this thread will NOT start unless explicitly wired.
-- External integration: n8n webhook URL is hardcoded as `N8N_WEBHOOK_URL` in `app.py`. Update this constant to switch environments.
+### Chain listener
+- Configured by env: `ENABLE_CHAIN_LISTENER`, `WEB3_RPC_URL`, `MOTIFY_CONTRACT_ADDRESS`, `MOTIFY_CONTRACT_ABI_PATH`, `CHAIN_CONFIRMATIONS`, `CHAIN_POLL_SECONDS`.
+- Uses web3.py v6. Polls logs in safe chunks (e.g., 250 blocks) with `from_block`/`to_block` to avoid provider limits. Each `ChallengeCreated` event triggers a handler that attaches `on_chain_challenge_id`, marks `status='active'`, sets `owner_wallet`, and stores `created_tx_hash` + `created_block_number`.
+- The listener is optional and won’t crash the API on failures.
+
+### Conventions & gotchas
+- JSON fields: API generally uses snake_case; when interacting with FE payloads, keep consistent shapes as documented in routes and tests.
+- Dates: UTC everywhere. Use ISO8601 with timezone (e.g., `2025-10-17T12:00:00+00:00`).
+- Security: Never trust client-reported percentages; accept normalized proofs from n8n only. Verify proofs webhook with HMAC.
+- State: All state is persisted in Supabase. The service is stateless; listener uses DB to correlate rows.
 
 ## Developer workflows
-- Dependencies:
-	- Runtime: see `requirements.txt` (Flask, Flask-CORS, requests, gunicorn).
-	- Experimental FastAPI sample lives in `test.py`; its deps are in `requirments_test.txt` and are NOT used by the Flask app.
-- Run (Windows cmd):
-	```cmd
-	python -m venv .venv
-	.venv\Scripts\activate
-	pip install -r requirements.txt
-	python app.py
-	```
-- Example requests (after `python app.py`):
-	```cmd
-	curl -X POST http://127.0.0.1:5000/challenges -H "Content-Type: application/json" -d "{\"name\":\"Steps\",\"description\":\"10k/day\",\"start_date\":\"2025-10-01T00:00:00+00:00\",\"end_date\":\"2025-10-07T00:00:00+00:00\",\"contract_address\":\"0xabc...\",\"goal\":\"10000 steps/day\"}"
-	curl -X POST http://127.0.0.1:5000/challenges/1/join -H "Content-Type: application/json" -d "{\"walletAddress\":\"0xWALLET\",\"amountUsd\":25}"
-	```
-- Production hint (Linux): `gunicorn app:app -w 2 -k gthread -b 0.0.0.0:8000`. Ensure the monitor thread is started via an app hook if you use WSGI (not auto-started under gunicorn).
- - Database schema changes: when adding/modifying tables, always update `docs/schema.sql` (single source of truth) and apply it in Supabase SQL Editor. Keep DAL methods and payload shapes consistent with the schema and indices (especially idempotency constraints).
- - Environment variables: when adding/updating envs, always reflect them in `.env.example` (document purpose and defaults). Never commit real secrets (`.env` is gitignored).
+- Dependencies: See `requirements.txt` (FastAPI, Uvicorn, Pydantic, requests, supabase, web3, pytest, python-dotenv). The legacy Flask app lives in `zold_backend/` and has its own `requirements.txt`.
+- Local run (Windows cmd):
+  1) `python -m venv .venv`
+  2) `.venv\Scripts\activate`
+  3) `pip install -r requirements.txt`
+  4) `python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000`
+- Tests: `pytest -q`. Some integration tests skip unless Supabase env vars are set.
+- Schema changes: Update `docs/schema.sql` and apply in Supabase. Keep DAL and payloads in sync.
+- Env vars: When adding/updating envs, also document them in `.env.example` (don’t commit real secrets).
 
 ## Files to know
-- `app.py` — entire Flask app, routes, background worker, n8n call logic.
-- `requirements.txt` — runtime deps for Flask app.
-- `requirments_test.txt` — deps for the sample `test.py` (FastAPI), not part of main service.
-- `docs/ARCHITECTURE.md` — living "wiki" of modules, dependencies, inputs/outputs. Keep this updated when adding/changing APIs, payloads, or envs.
- - `docs/schema.sql` — authoritative DB schema for Supabase/Postgres. Update this file with every DB change and re-apply in Supabase.
- - `.env.example` — example environment file. Keep this in sync with required env vars across environments; do NOT commit `.env`.
+- `app/main.py` — App factory, routers, global error handler, optional chain listener boot.
+- `app/api/routes_*.py` — Routers: `health`, `challenges`, `webhooks`, `users`, `integrations`, `leaderboards`, `chain` (simulate).
+- `app/services/web3client.py` — Web3 listener with chunked polling; decodes events and invokes callbacks.
+- `app/services/chain_handlers.py` — Attaches on-chain ids, updates `status`, `owner_wallet`, and tx metadata.
+- `app/models/db.py` — Supabase DAL and small data models.
+- `docs/schema.sql` — Authoritative DB schema with RLS and policies. Includes `created_tx_hash` and `created_block_number` in `challenges`.
+- `scripts/watch_listener.py`, `scripts/scan_events.py` — Dev tools for monitoring or diagnosing chain events.
+- `tests/` — API and unit tests: creation flow, webhook HMAC, payouts math, DB connectivity, chain simulation.
+- `zold_backend/` — Legacy Flask app (not used by the FastAPI service).
 
 ---
 
 ## Target architecture (roadmap)
-One-liner: Motify is a Base-chain accountability app. Users stake into on-chain challenges, provide proofs (Strava, GitHub), receive proportional refunds; failed portion goes to a predefined wallet. Platform takes 10% of failed portion; 5% of that fee fuels $MOTIFY rewards (on-chain).
+One-liner: Motify is a Base-chain accountability app. Users stake into on-chain challenges, provide proofs (Strava/GitHub), receive proportional refunds; failed portion goes to a predefined wallet. Platform takes 10% of failed portion; 5% of that fee fuels $MOTIFY rewards (on-chain).
 
 Tech stack target
 - Backend: Python 3.11+, FastAPI, Uvicorn, Pydantic, pytest
@@ -74,19 +72,19 @@ Tech stack target
 High-level flow
 Frontend ↔ REST/JSON ↔ FastAPI
 FastAPI → Supabase (users, challenges, stakes, proofs, payouts, tokens, stats)
-	→ web3.py (refund/sendTo/end via server signer)
-	↔ n8n (providers) → posts proofs to `/webhooks/proofs/{id}` with HMAC
+  → web3.py (refund/sendTo/end via server signer)
+  ↔ n8n (providers) → posts proofs to `/webhooks/proofs/{id}` with HMAC
 
 Core concepts
 - Challenges on-chain, mirrored in DB; users stake (USDC on Base).
 - n8n fetches proofs using stored OAuth tokens; backend ingests and aggregates per day.
 - Percent complete p = completed_days / total_days (≤ 1.0). Settlement prorates refund.
 
-Money math (wei integers)
+Money math (token minor units, integers)
 refund=floor(A*p); fail=A-refund; commission=(fail*PLATFORM_FEE_BPS_FAIL)//10_000; charity=fail-commission; reward=(commission*REWARD_BPS_OF_FEE)//10_000
 
 API surface (MVP)
-- Users/Challenges/Leaderboards/Stats as listed in the context; proofs via `/webhooks/proofs/{id}` (verify HMAC); settlements preview/execute endpoints; OAuth start/callback and integrations CRUD.
+- Users/Challenges/Leaderboards/Stats as listed; proofs via `/webhooks/proofs/{id}` (verify HMAC); settlements preview/execute endpoints; OAuth start/callback and integrations CRUD.
 
 Security & integrity
 - Webhook HMAC: verify `X-N8N-Signature` using `N8N_WEBHOOK_SECRET`.
@@ -95,19 +93,19 @@ Security & integrity
 - Windows: count proofs for `start_at ≤ day_key ≤ end_at` only.
 
 Env vars (indicative)
-- Supabase: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DATABASE_URL`
+- Supabase: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`
 - Web3/Contract: `WEB3_RPC_URL`, `MOTIFY_CONTRACT_ADDRESS`, `MOTIFY_CONTRACT_ABI_PATH`, `SERVER_SIGNER_PRIVATE_KEY`
 - OAuth: STRAVA/GITHUB client ids/secrets and redirect URIs
 - n8n: `N8N_WEBHOOK_SECRET`
 - Fees: `PLATFORM_FEE_BPS_FAIL` (default 1000), `REWARD_BPS_OF_FEE` (default 500)
 - Token encryption: `TOKEN_ENC_KEY`; defaults: stake token/address/decimals
 
-Suggested layout (for refactor)
+Suggested layout
 `app/main.py`, `api/routes_*.py`, `core/config.py`, `core/security.py`, `models/db.py`, `services/{proofs,payouts,web3client,leaderboards,oauth}.py`, `abi/Motify.json`, `tests/`
 
 Implementation guidance
-- Strong type hints and Pydantic models; pure functions for proofs/payouts; wei-only arithmetic.
-- Never trust client-reported percentages; accept normalized proofs from n8n only.
+- Strong type hints and Pydantic models; pure functions for proofs/payouts; integer arithmetic in token minor units.
+- Never trust client-provided percentages; accept normalized proofs from n8n only.
 - Keep secrets in env; never log private keys or tokens.
 
 If anything above is unclear (e.g., HMAC format, exact Supabase schema, contract method names), call it out and we’ll refine quickly.
@@ -121,19 +119,19 @@ If anything above is unclear (e.g., HMAC format, exact Supabase schema, contract
 - Headers: `Content-Type: application/json`, `X-N8N-Signature: <hex HMAC-SHA256(raw_body)>`, `X-N8N-Timestamp: <unix seconds>`
 - HMAC: Algorithm HMAC-SHA256; Secret `N8N_WEBHOOK_SECRET`; Message = raw request body bytes. Reject if |now − timestamp| > 300s or signature mismatch.
 - Request JSON example:
-	`{ "provider":"strava", "metric":"activity_minutes", "user_wallet":"0xAbC...", "value":87, "day_key":"2025-10-16", "window_start":"2025-10-16T00:00:00Z", "window_end":"2025-10-16T23:59:59Z", "source_payload_json":{...}, "idempotency_key":"proof:strava:0xabc...:2025-10-16" }`
+  `{ "provider":"strava", "metric":"activity_minutes", "user_wallet":"0xAbC...", "value":87, "day_key":"2025-10-16", "window_start":"2025-10-16T00:00:00Z", "window_end":"2025-10-16T23:59:59Z", "source_payload_json":{...}, "idempotency_key":"proof:strava:0xabc...:2025-10-16" }`
 - Responses: `202 Accepted → { "status":"accepted", "challenge_id": 42, "stored": true }`; Errors use uniform error contract below.
 - Optional progress ping: POST `/challenges/{id}/progress` with `{ user_wallet, percent_complete_hint, as_of, idempotency_key }`.
 - Verify helper (FastAPI reference):
-	```python
-	import hmac, hashlib, time
-	from fastapi import Header, HTTPException
-	def verify_n8n_hmac(raw: bytes, sig: str|None, ts: str|None, secret: str):
-			if not sig or not ts: raise HTTPException(401, "Missing signature headers")
-			if abs(int(time.time()) - int(ts)) > 300: raise HTTPException(401, "Stale timestamp")
-			digest = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
-			if not hmac.compare_digest(digest, (sig or "").lower()): raise HTTPException(401, "Bad signature")
-	```
+  ```python
+  import hmac, hashlib, time
+  from fastapi import Header, HTTPException
+  def verify_n8n_hmac(raw: bytes, sig: str|None, ts: str|None, secret: str):
+      if not sig or not ts: raise HTTPException(401, "Missing signature headers")
+      if abs(int(time.time()) - int(ts)) > 300: raise HTTPException(401, "Stale timestamp")
+      digest = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+      if not hmac.compare_digest(digest, (sig or "").lower()): raise HTTPException(401, "Bad signature")
+  ```
 
 2) Time windows & day bucketing
 - Timezone: UTC everywhere (DB timestamps, `day_key`, windows).
@@ -153,10 +151,10 @@ If anything above is unclear (e.g., HMAC format, exact Supabase schema, contract
 4) Contract interface (Base)
 - ABI path: `./abi/Motify.json` (env-scoped address).
 - Methods:
-	- `endChallenge(uint256 challengeId)`
-	- `settleUser(uint256 challengeId, address user, uint32 percentPpm, bytes32 runId)`
-	- `batchSettle(uint256 challengeId, address[] users, uint32[] percentsPpm, bytes32 runId)`
-- Events: `ChallengeEnded(challengeId, endedBy, endedAt)`, `UserSettled(challengeId, user, percentPpm, refundWei, charityWei, commissionWei, rewardFromCommissionWei, runId)`
+  - `endChallenge(uint256 challengeId)`
+  - `settleUser(uint256 challengeId, address user, uint32 percentPpm, bytes32 runId)`
+  - `batchSettle(uint256 challengeId, address[] users, uint32[] percentsPpm, bytes32 runId)`
+- Events: `ChallengeEnded(challengeId, endedBy, endedAt)`, `UserSettled(challengeId, user, percentPpm, refundAmount, charityAmount, commissionAmount, rewardFromCommissionAmount, runId)`
 - On-chain math: `refund=stake*percentPpm/1_000_000; fail=stake-refund; commission=fail*PLATFORM_FEE_BPS_FAIL/10_000; charity=fail-commission; rewardFromFee=commission*REWARD_BPS_OF_FEE/10_000`.
 
 5) Supabase schema — keys & indices (essentials)
@@ -166,7 +164,7 @@ If anything above is unclear (e.g., HMAC format, exact Supabase schema, contract
 - proofs: `UNIQUE(challenge_id, user_wallet, provider, metric, day_key)`, `UNIQUE(idempotency_key)`, index `(challenge_id, day_key)`
 - payouts: `UNIQUE(challenge_id, user_wallet, run_id)`, index `challenge_id`
 - integration_tokens: `PRIMARY KEY(wallet, provider)`, `UNIQUE(provider, provider_user_id)`
-- Types: `numeric(78,0)` for wei; `jsonb` for payloads/policies.
+- Types: `numeric(78,0)` for token minor-unit amounts; `jsonb` for payloads/policies.
 
 6) OAuth scopes & redirects
 - Strava scopes: `read,activity:read_all`; Redirects: Dev `http://localhost:8000/integrations/strava/callback`, Staging `https://staging-api.motify.app/integrations/strava/callback`, Prod `https://api.motify.app/integrations/strava/callback`.
@@ -186,7 +184,7 @@ If anything above is unclear (e.g., HMAC format, exact Supabase schema, contract
 Common: BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, IDEMPOTENT, VALIDATION_FAILED, CONFLICT, PROVIDER_ERROR, CHAIN_TX_FAILED, RATE_LIMITED, INTERNAL.
 
 9) Logging & PII
-- OK to log: wallet addresses, `challenge_id`, numeric wei amounts, `run_id`, endpoint/status.
+- OK to log: wallet addresses, `challenge_id`, numeric minor-unit amounts, `run_id`, endpoint/status.
 - Do NOT log: access/refresh tokens, private keys, webhook secrets, full `source_payload_json` (log hash/size only), HMACs.
 - Provider IDs: store full in DB; redact in logs: `gh:****{last4}`, `strava:****{last4}`.
 
@@ -196,8 +194,8 @@ Common: BAD_REQUEST, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, IDEMPOTENT, VALIDATION_
 
 11) Web3 client signatures (backend)
 - Python signatures:
-	- `def settle_user(self, challenge_id: int, user: str, percent_ppm: int, run_id: bytes) -> str: ...`
-	- `def batch_settle(self, challenge_id: int, users: list[str], percents_ppm: list[int], run_id: bytes) -> str: ...`
-	- `def end_challenge(self, challenge_id: int) -> str: ...`
+  - `def settle_user(self, challenge_id: int, user: str, percent_ppm: int, run_id: bytes) -> str: ...`
+  - `def batch_settle(self, challenge_id: int, users: list[str], percents_ppm: list[int], run_id: bytes) -> str: ...`
+  - `def end_challenge(self, challenge_id: int) -> str: ...`
 - Validation: `0 ≤ percent_ppm ≤ 1_000_000`; `len(users) == len(percents_ppm)`; `run_id` is 32 bytes (UUID → bytes32).
 - Backend computes `percent_ppm` from verified proofs; enforce cap `≤ 1_000_000`.
