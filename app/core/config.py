@@ -1,32 +1,19 @@
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     ENV: str = Field(default="development")
-    # n8n
-    N8N_WEBHOOK_SECRET: str = Field(default="dev-secret")
-    # Supabase
+    # Supabase (optional; health will report db connectivity if configured)
     SUPABASE_URL: str | None = None
     SUPABASE_ANON_KEY: str | None = None
     SUPABASE_SERVICE_ROLE_KEY: str | None = None
-    DATABASE_URL: str | None = None
-    # Fees
-    PLATFORM_FEE_BPS_FAIL: int = 1000
-    REWARD_BPS_OF_FEE: int = 500
-    # Web3
+    # Web3 indexer (optional)
     WEB3_RPC_URL: str | None = None
     MOTIFY_CONTRACT_ADDRESS: str | None = None
-    MOTIFY_CONTRACT_ABI_PATH: str | None = None
-    SERVER_SIGNER_PRIVATE_KEY: str | None = None
-    # Chain listener
-    ENABLE_CHAIN_LISTENER: bool = False
-    CHAIN_CONFIRMATIONS: int = 2
-    CHAIN_POLL_SECONDS: float = 5.0
+    MOTIFY_CONTRACT_ABI_PATH: str | None = "./abi/Motify.json"
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

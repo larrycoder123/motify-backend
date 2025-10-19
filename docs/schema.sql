@@ -1,165 +1,60 @@
 -- Essential tables and indices for Motify (Supabase/Postgres)
 
-create table if not exists users (
-  wallet text primary key,
-  created_at timestamptz default now()
+-- Minimal chain challenges index (append this to your Supabase project)
+create table if not exists public.chain_challenges (
+	contract_address text not null,
+	challenge_id bigint not null,
+	recipient text not null,
+	start_time bigint not null,
+	end_time bigint not null,
+	is_private boolean not null,
+	api_type text not null,
+	goal_type text not null,
+	goal_amount numeric(78,0) not null,
+	description text not null,
+	total_donation_amount numeric(78,0) not null,
+	results_finalized boolean not null,
+	participant_count bigint not null,
+	indexed_at timestamptz default now() not null,
+	primary key (contract_address, challenge_id)
 );
 
-create table if not exists challenges (
-  id bigserial primary key,
-  owner_wallet text,
-  -- Legacy fields (kept for back-compat): title, target_metric, target_value
-  title text,
-  -- New fields aligned with FE/contract
-  name text,
-  description text,
-  description_hash text,
-  contract_address text,
-  goal text,
-  service_type text,
-  activity_type text,
-  api_provider text,
-  is_charity boolean default false,
-  start_at timestamptz not null,
-  end_at timestamptz not null,
-  charity_wallet text,
-  is_private boolean default false,
-  invite_code text,
-  allowed_wallets text[],
-  stake_token text,
-  proof_policy jsonb,
-  on_chain_challenge_id bigint,
-  created_tx_hash text,
-  created_block_number bigint,
-  completed boolean default false,
-  status text default 'pending'
-);
-create index if not exists idx_challenges_owner on challenges(owner_wallet);
-create index if not exists idx_challenges_contract on challenges(contract_address);
-create index if not exists idx_challenges_status on challenges(status);
-create index if not exists idx_challenges_desc_hash on challenges(description_hash);
-create unique index if not exists ux_challenges_contract_onchain_id on challenges(contract_address, on_chain_challenge_id);
--- created_tx_hash index will be created after migration-safe ALTERs below
+create index if not exists idx_chain_challenges_end_ready on public.chain_challenges (end_time, results_finalized);
 
--- Migration-safe: add new columns on existing deployments
-alter table if exists challenges add column if not exists name text;
-alter table if exists challenges add column if not exists description text;
-alter table if exists challenges add column if not exists description_hash text;
-alter table if exists challenges add column if not exists contract_address text;
-alter table if exists challenges add column if not exists goal text;
-alter table if exists challenges add column if not exists service_type text;
-alter table if exists challenges add column if not exists activity_type text;
-alter table if exists challenges add column if not exists api_provider text;
-alter table if exists challenges add column if not exists is_charity boolean default false;
-alter table if exists challenges add column if not exists on_chain_challenge_id bigint;
-alter table if exists challenges add column if not exists created_tx_hash text;
-alter table if exists challenges add column if not exists created_block_number bigint;
-alter table if exists challenges add column if not exists completed boolean default false;
-alter table if exists challenges add column if not exists status text default 'pending';
-
--- Create index on created_tx_hash now that the column exists (on fresh or migrated DBs)
-create index if not exists idx_challenges_created_tx on challenges(created_tx_hash);
-
-create table if not exists stakes (
-  id bigserial primary key,
-  challenge_id bigint not null references challenges(id),
-  user_wallet text not null references users(wallet),
-  amount_minor_units numeric(78,0) not null, -- token smallest unit (e.g., USDC 6 decimals)
-  token_address text,
-  decimals int,
-  tx_hash_deposit text,
-  joined_block_number bigint,
-  joined_at timestamptz default now(),
-  joined_via text,
-  unique (challenge_id, user_wallet)
+-- Chain participants detail cache
+create table if not exists public.chain_participants (
+	contract_address text not null,
+	challenge_id bigint not null,
+	participant_address text not null,
+	amount numeric(78,0) not null,
+	refund_percentage numeric(78,0) not null,
+	result_declared boolean not null,
+	indexed_at timestamptz default now() not null,
+	primary key (contract_address, challenge_id, participant_address)
 );
 
--- Migration-safe: ensure token-agnostic stake amount column exists
-alter table if exists stakes add column if not exists amount_minor_units numeric(78,0);
-alter table if exists stakes add column if not exists joined_block_number bigint;
-alter table if exists stakes add column if not exists joined_at timestamptz default now();
+create index if not exists idx_chain_participants_challenge on public.chain_participants (contract_address, challenge_id);
 
--- Helpful indexes for frequent lookups
-create index if not exists idx_stakes_challenge on stakes(challenge_id);
-create index if not exists idx_stakes_wallet on stakes(user_wallet);
+--
+-- Row Level Security (RLS) and policies
+-- These settings ensure only the service role can write, while anon/authenticated can optionally read.
+-- The service_role bypasses RLS automatically. Do not add insert/update/delete policies for anon/auth.
 
-create table if not exists proofs (
-  id bigserial primary key,
-  challenge_id bigint not null references challenges(id),
-  user_wallet text not null references users(wallet),
-  provider text not null,
-  metric text not null,
-  value bigint not null,
-  day_key date not null,
-  window_start timestamptz not null,
-  window_end timestamptz not null,
-  source_payload_json jsonb,
-  idempotency_key text not null,
-  received_at timestamptz default now(),
-  unique (challenge_id, user_wallet, provider, metric, day_key),
-  unique (idempotency_key)
-);
-create index if not exists idx_proofs_challenge_day on proofs(challenge_id, day_key);
+-- Enable RLS and revoke broad grants
+alter table public.chain_challenges enable row level security;
+revoke all on table public.chain_challenges from anon, authenticated;
 
-create table if not exists payouts (
-  id bigserial primary key,
-  challenge_id bigint not null references challenges(id),
-  user_wallet text not null references users(wallet),
-  run_id uuid not null,
-  percent_ppm int not null,
-  refund_amount numeric(78,0), -- token smallest unit
-  charity_amount numeric(78,0),
-  commission_amount numeric(78,0),
-  reward_from_commission_amount numeric(78,0),
-  tx_hash_settlement text,
-  settled_at timestamptz,
-  unique (challenge_id, user_wallet, run_id)
-);
+alter table public.chain_participants enable row level security;
+revoke all on table public.chain_participants from anon, authenticated;
 
--- Migration-safe: ensure token-agnostic payout amount columns exist
-alter table if exists payouts add column if not exists refund_amount numeric(78,0);
-alter table if exists payouts add column if not exists charity_amount numeric(78,0);
-alter table if exists payouts add column if not exists commission_amount numeric(78,0);
-alter table if exists payouts add column if not exists reward_from_commission_amount numeric(78,0);
-create index if not exists idx_payouts_challenge on payouts(challenge_id);
+-- Optional: Public read-only access (anon + authenticated) to cache tables
+-- If you do not want public reads, comment these out.
+create policy if not exists "read_chain_challenges"
+on public.chain_challenges for select
+to anon, authenticated
+using (true);
 
-create table if not exists integration_tokens (
-  wallet text not null,
-  provider text not null,
-  provider_user_id text,
-  scope text,
-  access_token_enc text,
-  refresh_token_enc text,
-  expires_at timestamptz,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now(),
-  primary key(wallet, provider),
-  unique (provider, provider_user_id)
-);
-
--- Row Level Security (RLS)
--- Enable RLS on all tables in public schema to satisfy Supabase security best practices.
--- NOTE: The Supabase service_role key used by the backend bypasses RLS; clients using the anon/auth JWT will be restricted by policies below.
-
-alter table if exists users enable row level security;
-alter table if exists challenges enable row level security;
-alter table if exists stakes enable row level security;
-alter table if exists proofs enable row level security;
-alter table if exists payouts enable row level security;
-alter table if exists integration_tokens enable row level security;
-
--- Default stance: no policies (deny-all) keeps data private to service_role operations.
--- If you want the frontend to read public/open challenges directly from Supabase with the anon key,
--- you can allow read-only access with the following policy:
-
-do $$ begin
-  if not exists (
-    select 1 from pg_policies where schemaname = 'public' and tablename = 'challenges' and policyname = 'Public read open challenges'
-  ) then
-    create policy "Public read open challenges"
-      on public.challenges
-      for select
-      to anon
-      using (status = 'open' and coalesce(is_private, false) = false);
-  end if;
-end $$;
+create policy if not exists "read_chain_participants"
+on public.chain_participants for select
+to anon, authenticated
+using (true);

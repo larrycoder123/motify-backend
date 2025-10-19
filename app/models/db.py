@@ -1,22 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional, List, Dict, Any
 from supabase import create_client, Client
-from pydantic import BaseModel
 from app.core.config import settings
-
-
-class Proof(BaseModel):
-    challenge_id: int
-    user_wallet: str
-    provider: str
-    metric: str
-    value: int
-    day_key: str
-    window_start: str
-    window_end: str
-    source_payload_json: dict
-    idempotency_key: str
 
 
 class SupabaseDAL:
@@ -30,13 +16,21 @@ class SupabaseDAL:
             return cls(settings.SUPABASE_URL, key)
         return None
 
-    # Idempotent insert: relies on DB unique constraints
-    def insert_proof(self, proof: Proof) -> dict[str, Any]:
-        data = proof.model_dump()
-        # Use upsert w/ on_conflict idempotency_key to avoid duplicates
-        resp = (
-            self.client.table("proofs")
-            .upsert(data, on_conflict="idempotency_key")
+    def upsert_chain_challenges(self, items: List[Dict[str, Any]]) -> Any:
+        if not items:
+            return {"count": 0}
+        # on_conflict by (contract_address, challenge_id)
+        return (
+            self.client.table("chain_challenges")
+            .upsert(items, on_conflict="contract_address,challenge_id")
             .execute()
         )
-        return {"inserted": True, "response": resp.model_dump() if hasattr(resp, "model_dump") else str(resp)}
+    
+    def upsert_chain_participants(self, items: List[Dict[str, Any]]):
+        if not items:
+            return {"count": 0}
+        return (
+            self.client.table("chain_participants")
+            .upsert(items, on_conflict="contract_address,challenge_id,participant_address")
+            .execute()
+        )
