@@ -1,6 +1,4 @@
--- Essential tables and indices for Motify (Supabase/Postgres)
 
--- Minimal chain challenges index (append this to your Supabase project)
 create table if not exists public.chain_challenges (
 	contract_address text not null,
 	challenge_id bigint not null,
@@ -8,6 +6,7 @@ create table if not exists public.chain_challenges (
 	start_time bigint not null,
 	end_time bigint not null,
 	is_private boolean not null,
+	name text not null,
 	api_type text not null,
 	goal_type text not null,
 	goal_amount numeric(78,0) not null,
@@ -21,7 +20,6 @@ create table if not exists public.chain_challenges (
 
 create index if not exists idx_chain_challenges_end_ready on public.chain_challenges (end_time, results_finalized);
 
--- Chain participants detail cache
 create table if not exists public.chain_participants (
 	contract_address text not null,
 	challenge_id bigint not null,
@@ -35,26 +33,43 @@ create table if not exists public.chain_participants (
 
 create index if not exists idx_chain_participants_challenge on public.chain_participants (contract_address, challenge_id);
 
---
--- Row Level Security (RLS) and policies
--- These settings ensure only the service role can write, while anon/authenticated can optionally read.
--- The service_role bypasses RLS automatically. Do not add insert/update/delete policies for anon/auth.
+-- Finished challenges archive for processed items
+create table if not exists public.finished_challenges (
+    contract_address text not null,
+    challenge_id bigint not null,
+    processed_at timestamptz default now(),
+    rule jsonb, -- computation rule/details used for declareResults
+    summary jsonb, -- optional summary/receipt
+    primary key (contract_address, challenge_id)
+);
 
--- Enable RLS and revoke broad grants
-alter table public.chain_challenges enable row level security;
-revoke all on table public.chain_challenges from anon, authenticated;
+-- Per-participant archived results for processed challenges
+create table if not exists public.finished_participants (
+	contract_address text not null,
+	challenge_id bigint not null,
+	participant_address text not null,
+	stake_minor_units numeric(78,0) not null,
+	percent_ppm bigint not null,
+	progress_ratio numeric, -- optional: if you choose to store ratios (0..1)
+	batch_no int,           -- optional: chunk index if submitted in batches
+	tx_hash text,           -- optional: on-chain tx hash for this batch/item
+	archived_at timestamptz default now() not null,
+	primary key (contract_address, challenge_id, participant_address)
+);
+create index if not exists idx_finished_participants_chal on public.finished_participants (contract_address, challenge_id);
+create index if not exists idx_finished_participants_user on public.finished_participants (lower(participant_address));
 
-alter table public.chain_participants enable row level security;
-revoke all on table public.chain_participants from anon, authenticated;
-
--- Optional: Public read-only access (anon + authenticated) to cache tables
--- If you do not want public reads, comment these out.
-create policy if not exists "read_chain_challenges"
-on public.chain_challenges for select
-to anon, authenticated
-using (true);
-
-create policy if not exists "read_chain_participants"
-on public.chain_participants for select
-to anon, authenticated
-using (true);
+-- Per-wallet provider tokens used for progress fetching (optional)
+-- Store wallet_address lowercased to match code lookups.
+create table if not exists public.user_tokens (
+	wallet_address text not null,
+	provider text not null,
+	access_token text not null,
+	refresh_token text,
+	expires_at timestamptz,
+	scopes text[],
+	created_at timestamptz default now() not null,
+	updated_at timestamptz default now() not null,
+	primary key (wallet_address, provider)
+);
+create index if not exists idx_user_tokens_wallet_lower on public.user_tokens (lower(wallet_address));

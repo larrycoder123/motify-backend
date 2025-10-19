@@ -6,30 +6,44 @@ This repository currently hosts a slim FastAPI service used for health monitorin
 - FastAPI app (`app/main.py`) with CORS and a global error handler.
 - Health router (`app/api/routes_health.py`) that returns `{ ok: true, db: boolean }`.
 - Supabase DAL (`app/models/db.py`) used by health to perform a lightweight query when credentials are configured.
+- Chain reader (`app/services/chain_reader.py`) for read-only web3 contract calls.
+- Indexer services (`app/services/indexer.py`) expose pure functions for caching challenges/participants and preparing previews.
+- CLI (`app/jobs/indexer_cli.py`) to invoke indexer services without HTTP endpoints.
 
 ## API
 - GET `/health` → `{ ok: true, db: bool }`
 	- `db` is true when `SUPABASE_URL` and a key are provided and a simple select against `users` succeeds.
 
-### Chain (read-only)
-- GET `/chain/challenges?limit=200` → Calls contract `getAllChallenges(limit)` and returns an array of challenges.
-- GET `/chain/challenges/{challenge_id}` → Calls `getChallengeById(challenge_id)` and returns details incl. participants.
+Previously exposed chain and indexer endpoints have been removed in favor of internal services and a CLI.
 
-Requires env:
-- `WEB3_RPC_URL`, `MOTIFY_CONTRACT_ADDRESS`, `MOTIFY_CONTRACT_ABI_PATH` (defaults to `./abi/Motify.json`).
+### CLI (developer-only)
+Run these examples from repo root with your virtualenv activated and required env vars set (`WEB3_RPC_URL`, `MOTIFY_CONTRACT_ADDRESS`, `MOTIFY_CONTRACT_ABI_PATH`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`):
 
-### Indexer (DB-backed cache)
-- GET `/indexer/challenges?limit=1000&only_ready_to_end=true` → Reads from chain, filters ended-and-not-finalized, upserts into `chain_challenges`.
-- POST `/indexer/challenges/{challenge_id}/detail` → Reads participants from chain and upserts into `chain_participants`.
-- GET `/indexer/ready` → Returns cached challenges ready to end from `chain_challenges`.
-- GET `/indexer/challenges/{challenge_id}/preview` → Returns a placeholder preview based on cached participants.
+```bat
+.venv\Scripts\python -m app.jobs.indexer_cli index-challenges --limit 1000
+.venv\Scripts\python -m app.jobs.indexer_cli ready --limit 50
+.venv\Scripts\python -m app.jobs.indexer_cli index-details 1
+.venv\Scripts\python -m app.jobs.indexer_cli preview 1
+.venv\Scripts\python -m app.jobs.indexer_cli prepare 1 --default-percent-ppm 500000
+```
 
-Apply the DDL in `docs/schema.sql` to create `chain_challenges` and `chain_participants` before using the indexer endpoints.
+These commands print JSON to stdout and exit non-zero on errors, suitable for schedulers.
 
 ## Configuration
 Environment variables are read via pydantic-settings from `.env`:
 - `ENV` (default `development`)
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (optional)
+
+Chain services require:
+- `WEB3_RPC_URL`, `MOTIFY_CONTRACT_ADDRESS`, `MOTIFY_CONTRACT_ABI_PATH` (defaults to `./abi/Motify.json`).
+
+Progress token lookup (required for challenges with an `api_type`):
+- `USER_TOKENS_TABLE` (e.g., `user_tokens`)
+- `USER_TOKENS_WALLET_COL` (e.g., `wallet_address`)
+- `USER_TOKENS_PROVIDER_COL` (e.g., `provider`)
+- `USER_TOKENS_ACCESS_TOKEN_COL` (e.g., `access_token`)
+
+Security note: Store provider tokens in a restricted table with RLS so only a service role can read. Do not expose via public endpoints. If a challenge has `api_type` set, these envs must be configured or prepare_run will raise.
 
 See `.env.example` for a template.
 
@@ -44,9 +58,8 @@ Windows cmd:
 Run `pytest -q`. The DB connectivity test will skip unless Supabase env vars are set.
 
 ## Future work
-When re-introducing functionality, keep features modular under `app/api/` and `app/services/` with strong typing and clear boundaries.
+When re-introducing functionality, keep features modular under `app/services/` and expose job entry points via CLI. Add scheduling (GitHub Actions, cron, or cloud scheduler) to run the CLI periodically. Integrate provider-specific progress fetchers (Strava, etc.) that use per-wallet tokens from `user_tokens`.
 
 ## ABI
-- The contract ABI can be stored under `abi/` (for example `abi/Motify.json`).
-- In this minimal backend, the ABI is not loaded by the server; it’s kept only as a reference for future on-chain integrations.
-	- When chain endpoints are enabled (see above), the ABI path is read from env and used by the web3 client.
+- The contract ABI is stored under `abi/` (for example `abi/Motify.json`).
+- The CLI/services load the ABI path from env and use it for read-only web3 calls.

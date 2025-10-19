@@ -5,9 +5,6 @@ import logging
 import traceback
 
 from app.api.routes_health import router as health_router
-from app.api.routes_indexer import router as indexer_router
-from app.api.routes_chain_reader import router as chain_reader_router
-from app.api.routes_indexer_detail import router as indexer_detail_router
 
 
 def create_app() -> FastAPI:
@@ -28,9 +25,7 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(health_router)
-    app.include_router(indexer_router)
-    app.include_router(chain_reader_router)
-    app.include_router(indexer_detail_router)
+    # Indexer and chain reader endpoints removed; use internal services/CLI instead.
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(_, exc: Exception):

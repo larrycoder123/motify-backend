@@ -27,44 +27,84 @@ class ChainReader:
         res = self.contract.functions.getAllChallenges(limit).call()
         parsed: List[Dict[str, Any]] = []
         for item in res:
+            # Support both old and new ABI layouts
+            # Old: [id,recipient,start,end,isPrivate,apiType,goalType,goalAmount,description,totalDonation,resultsFinalized,participantCount]
+            # New: [id,recipient,start,end,isPrivate,name,apiType,goalType,goalAmount,description,totalDonation,resultsFinalized,participantCount]
+            length = len(item)
+            is_new = length >= 13
+            name = item[5] if is_new else ""
+            api_type = item[6] if is_new else item[5]
+            goal_type = item[7] if is_new else item[6]
+            goal_amount = item[8] if is_new else item[7]
+            description = item[9] if is_new else item[8]
+            total_donation = item[10] if is_new else item[9]
+            results_finalized = item[11] if is_new else item[10]
+            participant_count = item[12] if is_new else item[11]
+
             parsed.append({
                 "challenge_id": int(item[0]),
                 "recipient": item[1],
                 "start_time": int(item[2]),
                 "end_time": int(item[3]),
                 "is_private": bool(item[4]),
-                "api_type": item[5],
-                "goal_type": item[6],
-                "goal_amount": int(item[7]),
-                "description": item[8],
-                "total_donation_amount": int(item[9]),
-                "results_finalized": bool(item[10]),
-                "participant_count": int(item[11]),
+                "name": name,
+                "api_type": api_type,
+                "goal_type": goal_type,
+                "goal_amount": int(goal_amount),
+                "description": description,
+                "total_donation_amount": int(total_donation),
+                "results_finalized": bool(results_finalized),
+                "participant_count": int(participant_count),
             })
         return parsed
 
     def get_challenge_detail(self, challenge_id: int) -> Dict[str, Any]:
         d = self.contract.functions.getChallengeById(challenge_id).call()
-        # d schema: (challengeId, recipient, startTime, endTime, isPrivate, apiType, goalType, goalAmount, description, totalDonationAmount, resultsFinalized, participants[])
+        # Old: (id,recipient,start,end,isPrivate,apiType,goalType,goalAmount,description,totalDonation,resultsFinalized,participants[])
+        # New: (id,recipient,start,end,isPrivate,name,apiType,goalType,goalAmount,description,totalDonation,resultsFinalized,participants[])
+        length = len(d)
+        is_new = length >= 13
+        name = d[5] if is_new else ""
+        api_type = d[6] if is_new else d[5]
+        goal_type = d[7] if is_new else d[6]
+        goal_amount = d[8] if is_new else d[7]
+        description = d[9] if is_new else d[8]
+        total_donation = d[10] if is_new else d[9]
+        results_finalized = d[11] if is_new else d[10]
+        participants_idx = 12 if is_new else 11
+
         participants = []
-        for p in d[11]:
-            participants.append({
-                "participant_address": p[0],
-                "amount": int(p[1]),
-                "refund_percentage": int(p[2]),
-                "result_declared": bool(p[3]),
-            })
+        for p in d[participants_idx]:
+            # Old: (participantAddress, amount, refundPercentage, resultDeclared)
+            # New: (participantAddress, initialAmount, amount, refundPercentage, resultDeclared)
+            if len(p) >= 5:
+                participants.append({
+                    "participant_address": p[0],
+                    "initial_amount": int(p[1]),
+                    "amount": int(p[2]),
+                    "refund_percentage": int(p[3]),
+                    "result_declared": bool(p[4]),
+                })
+            else:
+                participants.append({
+                    "participant_address": p[0],
+                    "amount": int(p[1]),
+                    "refund_percentage": int(p[2]),
+                    "result_declared": bool(p[3]),
+                })
+
         return {
             "challenge_id": int(d[0]),
             "recipient": d[1],
             "start_time": int(d[2]),
             "end_time": int(d[3]),
             "is_private": bool(d[4]),
-            "api_type": d[5],
-            "goal_type": d[6],
-            "goal_amount": int(d[7]),
-            "description": d[8],
-            "total_donation_amount": int(d[9]),
-            "results_finalized": bool(d[10]),
+            "name": name,
+            "api_type": api_type,
+            "goal_type": goal_type,
+            "goal_amount": int(goal_amount),
+            "description": description,
+            "total_donation_amount": int(total_donation),
+            "results_finalized": bool(results_finalized),
             "participants": participants,
         }

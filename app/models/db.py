@@ -34,3 +34,41 @@ class SupabaseDAL:
             .upsert(items, on_conflict="contract_address,challenge_id,participant_address")
             .execute()
         )
+
+    def upsert_finished_challenges(self, items: List[Dict[str, Any]]):
+        if not items:
+            return {"count": 0}
+        return (
+            self.client.table("finished_challenges")
+            .upsert(items, on_conflict="contract_address,challenge_id")
+            .execute()
+        )
+
+    def upsert_finished_participants(self, items: List[Dict[str, Any]]):
+        if not items:
+            return {"count": 0}
+        return (
+            self.client.table("finished_participants")
+            .upsert(items, on_conflict="contract_address,challenge_id,participant_address")
+            .execute()
+        )
+
+    def delete_chain_challenge(self, contract_address: str, challenge_id: int):
+        return (
+            self.client
+            .table("chain_challenges")
+            .delete()
+            .eq("contract_address", contract_address)
+            .eq("challenge_id", challenge_id)
+            .execute()
+        )
+
+    def delete_chain_participants(self, contract_address: str, challenge_id: int):
+        return (
+            self.client
+            .table("chain_participants")
+            .delete()
+            .eq("contract_address", contract_address)
+            .eq("challenge_id", challenge_id)
+            .execute()
+        )
