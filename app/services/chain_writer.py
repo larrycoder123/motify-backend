@@ -169,7 +169,11 @@ def declare_results(
     tx_hashes: List[str] = []
     receipts: List[Dict[str, Any]] = []
     used_fee_params: List[Dict[str, Any]] = []
-    nonce = w3.eth.get_transaction_count(account.address)
+    # Use 'pending' to include mempool txs and avoid nonce-too-low
+    try:
+        nonce = w3.eth.get_transaction_count(account.address, "pending")
+    except Exception:
+        nonce = w3.eth.get_transaction_count(account.address)
 
     for (participants, percentages) in chunks:
         fee = _fee_params(w3)
@@ -177,51 +181,68 @@ def declare_results(
             "params": {k: int(v) for k, v in fee.items()},
             "mode": _fee_mode(fee),
         })
-        tx = contract.functions.declareResults(int(challenge_id), participants, percentages).build_transaction({
-            "from": account.address,
-            "nonce": nonce,
-            **fee,
-        })
-        # Gas limit estimation if not provided
-        if settings.GAS_LIMIT is not None:
-            tx["gas"] = int(settings.GAS_LIMIT)
-        else:
+        # Build and send with a small retry on nonce errors
+        attempts = 0
+        while True:
+            attempts += 1
+            tx = contract.functions.declareResults(int(challenge_id), participants, percentages).build_transaction({
+                "from": account.address,
+                "nonce": nonce,
+                **fee,
+            })
+            # Gas limit estimation if not provided
+            if settings.GAS_LIMIT is not None:
+                tx["gas"] = int(settings.GAS_LIMIT)
+            else:
+                try:
+                    tx["gas"] = w3.eth.estimate_gas(tx)  # may raise
+                except Exception:
+                    # fallback gas limit; caller can override via env
+                    tx["gas"] = 1_000_000
+
+            signed = account.sign_transaction(tx)
+            raw_tx = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+            if raw_tx is None:
+                raise RuntimeError("SignedTransaction missing raw transaction bytes (web3 compat issue)")
             try:
-                tx["gas"] = w3.eth.estimate_gas(tx)  # may raise
-            except Exception:
-                # fallback gas limit; caller can override via env
-                tx["gas"] = 1_000_000
+                tx_hash = w3.eth.send_raw_transaction(raw_tx)
+                tx_hash_hex = tx_hash.hex()
+                tx_hashes.append(tx_hash_hex)
 
-        signed = account.sign_transaction(tx)
-        raw_tx = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
-        if raw_tx is None:
-            raise RuntimeError("SignedTransaction missing raw transaction bytes (web3 compat issue)")
-        tx_hash = w3.eth.send_raw_transaction(raw_tx)
-        tx_hash_hex = tx_hash.hex()
-        tx_hashes.append(tx_hash_hex)
-
-        # Wait for receipt (optional; could be async in production)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-        # Normalize keys across different web3 versions
-        r_status = int(getattr(receipt, "status", getattr(receipt, "status", 0)))
-        r_gas_used = getattr(receipt, "gasUsed", None)
-        if r_gas_used is None:
-            r_gas_used = getattr(receipt, "gas_used", None)
-        r_block = getattr(receipt, "blockNumber", None)
-        if r_block is None:
-            r_block = getattr(receipt, "block_number", None)
-        # Some providers expose effectiveGasPrice; include when available
-        eff = getattr(receipt, "effectiveGasPrice", None)
-        if eff is None:
-            eff = getattr(receipt, "effective_gas_price", None)
-        receipts.append({
-            "transactionHash": tx_hash_hex,
-            "status": int(r_status if r_status is not None else 0),
-            "gasUsed": int(r_gas_used if r_gas_used is not None else 0),
-            "blockNumber": int(r_block if r_block is not None else 0),
-            "effectiveGasPrice": int(eff) if eff is not None else None,
-        })
-        nonce += 1
+                # Wait for receipt (optional; could be async in production)
+                receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+                # Normalize keys across different web3 versions
+                r_status = int(getattr(receipt, "status", getattr(receipt, "status", 0)))
+                r_gas_used = getattr(receipt, "gasUsed", None)
+                if r_gas_used is None:
+                    r_gas_used = getattr(receipt, "gas_used", None)
+                r_block = getattr(receipt, "blockNumber", None)
+                if r_block is None:
+                    r_block = getattr(receipt, "block_number", None)
+                # Some providers expose effectiveGasPrice; include when available
+                eff = getattr(receipt, "effectiveGasPrice", None)
+                if eff is None:
+                    eff = getattr(receipt, "effective_gas_price", None)
+                receipts.append({
+                    "transactionHash": tx_hash_hex,
+                    "status": int(r_status if r_status is not None else 0),
+                    "gasUsed": int(r_gas_used if r_gas_used is not None else 0),
+                    "blockNumber": int(r_block if r_block is not None else 0),
+                    "effectiveGasPrice": int(eff) if eff is not None else None,
+                })
+                nonce += 1
+                break
+            except Exception as e:
+                msg = str(e)
+                # Refresh pending nonce and retry once on 'nonce too low' or similar RPC codes
+                if ("nonce too low" in msg) or ("replacement transaction underpriced" in msg) or ("already known" in msg):
+                    try:
+                        nonce = w3.eth.get_transaction_count(account.address, "pending")
+                    except Exception:
+                        nonce = w3.eth.get_transaction_count(account.address)
+                    if attempts < 2:
+                        continue
+                raise
 
     return {
         "dry_run": False,
