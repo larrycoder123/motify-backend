@@ -1,0 +1,18 @@
+{
+  "contract_address": "0x53Da03A36Aa9333C41C5521A113d0f8BA028bC43",
+  "challenge_id": 0,
+  "rule": {
+    "type": "progress",
+    "fallback_percent_ppm": 0
+  },
+  "items": [],
+  "payload": {
+    "challenge_id": 0,
+    "chunks": []
+  },
+  "tx_hashes": [],
+  "receipts": [],
+  "dry_run": false,
+  "fee_params_preview": null,
+  "used_fee_params": []
+}
