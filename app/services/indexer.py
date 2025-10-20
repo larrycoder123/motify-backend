@@ -188,9 +188,10 @@ def prepare_run(challenge_id: int, default_percent_ppm: int = 0) -> Dict[str, An
     resp = (
         dal.client
         .table("chain_participants")
-        .select("participant_address,amount")
+        .select("participant_address,amount,result_declared")
         .eq("contract_address", settings.MOTIFY_CONTRACT_ADDRESS)
         .eq("challenge_id", challenge_id)
+        .eq("result_declared", False)
         .limit(2000)
         .execute()
     )
@@ -203,9 +204,10 @@ def prepare_run(challenge_id: int, default_percent_ppm: int = 0) -> Dict[str, An
             participants = (
                 dal.client
                 .table("chain_participants")
-                .select("participant_address,amount")
+                .select("participant_address,amount,result_declared")
                 .eq("contract_address", settings.MOTIFY_CONTRACT_ADDRESS)
                 .eq("challenge_id", challenge_id)
+                .eq("result_declared", False)
                 .limit(2000)
                 .execute()
             )

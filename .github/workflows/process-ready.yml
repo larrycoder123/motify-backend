@@ -1,0 +1,53 @@
+name: Process ready challenges
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # every 15 minutes
+  workflow_dispatch: {}
+
+concurrency:
+  group: motify-process-ready
+  cancel-in-progress: false
+
+jobs:
+  process-ready:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Process ready challenges
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          WEB3_RPC_URL: ${{ secrets.WEB3_RPC_URL }}
+          MOTIFY_CONTRACT_ADDRESS: ${{ secrets.MOTIFY_CONTRACT_ADDRESS }}
+          MOTIFY_CONTRACT_ABI_PATH: ${{ secrets.MOTIFY_CONTRACT_ABI_PATH }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          MAX_FEE_GWEI: ${{ secrets.MAX_FEE_GWEI }}
+          STAKE_TOKEN_DECIMALS: ${{ secrets.STAKE_TOKEN_DECIMALS }}
+          # Optional controls (set these secrets if you want to override the defaults)
+          DEFAULT_PERCENT_PPM: ${{ secrets.DEFAULT_PERCENT_PPM }}
+          CHUNK_SIZE: ${{ secrets.CHUNK_SIZE }}
+          SEND_TX: ${{ secrets.SEND_TX }}
+        run: |
+          python -m app.jobs.process_ready_all | tee process_ready_output.log
+
+      - name: Upload run log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: process-ready-log
+          path: process_ready_output.log
