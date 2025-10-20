@@ -1,0 +1,50 @@
+{
+  "contract_address": "0x53Da03A36Aa9333C41C5521A113d0f8BA028bC43",
+  "challenge_id": 8,
+  "rule": {
+    "type": "progress",
+    "fallback_percent_ppm": 0
+  },
+  "items": [
+    {
+      "user": "0xFec12eDFCdE4394a93388938e5570170c57A5C37",
+      "stake_minor_units": 1000000,
+      "percent_ppm": 0,
+      "progress_ratio": 0.0,
+      "batch_no": 0,
+      "tx_hash": "d08b3cbaf8931b39f7e6007f088194ccf9f410839f3e361c878ecdfcdcc7f396"
+    }
+  ],
+  "payload": {
+    "challenge_id": 8,
+    "chunks": [
+      {
+        "participants": [
+          "0xFec12eDFCdE4394a93388938e5570170c57A5C37"
+        ],
+        "refundPercentages": [
+          0
+        ]
+      }
+    ]
+  },
+  "tx_hashes": [
+    "d08b3cbaf8931b39f7e6007f088194ccf9f410839f3e361c878ecdfcdcc7f396"
+  ],
+  "receipts": [
+    {
+      "transactionHash": "d08b3cbaf8931b39f7e6007f088194ccf9f410839f3e361c878ecdfcdcc7f396",
+      "status": 1,
+      "gasUsed": 101699,
+      "blockNumber": 32574877,
+      "effectiveGasPrice": 20000000000
+    }
+  ],
+  "dry_run": false,
+  "fee_params_preview": null,
+  "used_fee_params": [
+    {
+      "gasPrice": 20000000000
+    }
+  ]
+}

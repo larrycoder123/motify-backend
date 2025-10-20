@@ -10,7 +10,8 @@ from app.core.config import settings
 def _load_contract(w3: Web3):
     import json
     with open(settings.MOTIFY_CONTRACT_ABI_PATH, "r", encoding="utf-8") as f:
-        abi = json.load(f)
+        raw = json.load(f)
+    abi = raw.get("abi") if isinstance(raw, dict) and "abi" in raw else raw
     return w3.eth.contract(address=Web3.to_checksum_address(settings.MOTIFY_CONTRACT_ADDRESS), abi=abi)
 
 
@@ -23,13 +24,40 @@ def _fee_params(w3: Web3) -> Dict[str, int]:
     """Decide fee params for the transaction.
 
     Priority:
-      1) If GAS_PRICE_GWEI is set, use legacy gasPrice
-      2) Else try EIP-1559 using latest block baseFee and suggested priority fee
-      3) Else fall back to node's gas_price
+      1) If MAX_FEE_GWEI set, use EIP-1559 cap from env with auto-derived priority (preferred)
+    2) Else try EIP-1559 using latest block baseFee and a modest default priority fee
+    3) Else fall back to node's gas_price
     """
-    # 1) Legacy override via env
-    if settings.GAS_PRICE_GWEI is not None:
-        return {"gasPrice": w3.to_wei(settings.GAS_PRICE_GWEI, "gwei")}
+    # 1) EIP-1559 caps from env, if provided (preferred)
+    if settings.MAX_FEE_GWEI is not None:
+        # Derive a conservative priority tip from node suggestions / fee history
+        priority = None
+        try:
+            mpf = getattr(w3.eth, "max_priority_fee", None)
+            if callable(mpf):
+                priority = float(mpf()) / 1e9  # wei -> gwei
+            elif isinstance(mpf, int):
+                priority = float(mpf) / 1e9
+        except Exception:
+            priority = None
+        if priority is None:
+            try:
+                fh = getattr(w3.eth, "fee_history", None)
+                if callable(fh):
+                    hist = fh(5, "latest", [50])
+                    rewards = hist.get("reward") if isinstance(hist, dict) else None
+                    if rewards and len(rewards) > 0 and len(rewards[-1]) > 0:
+                        priority = float(rewards[-1][0]) / 1e9
+            except Exception:
+                priority = None
+        if priority is None:
+            priority = 0.1  # tiny fallback tip
+
+        max_fee = float(settings.MAX_FEE_GWEI)
+        return {
+            "maxPriorityFeePerGas": w3.to_wei(priority, "gwei"),
+            "maxFeePerGas": w3.to_wei(max_fee, "gwei"),
+        }
 
     # 2) Try EIP-1559
     try:
@@ -37,17 +65,17 @@ def _fee_params(w3: Web3) -> Dict[str, int]:
         base_fee = latest.get("baseFeePerGas") if isinstance(latest, dict) else getattr(latest, "baseFeePerGas", None)
         if base_fee is not None:
             try:
-                # web3 v6: property; v5: may not exist
+                # Try node suggestion if available; otherwise use a conservative 1 gwei priority
                 priority = getattr(w3.eth, "max_priority_fee", None)
                 if callable(priority):
                     priority_fee = int(priority())
                 elif isinstance(priority, int):
                     priority_fee = int(priority)
                 else:
-                    # fallback to 2 gwei priority
-                    priority_fee = w3.to_wei(2, "gwei")
+                    priority_fee = int(w3.to_wei(1, "gwei"))
             except Exception:
-                priority_fee = w3.to_wei(2, "gwei")
+                priority_fee = int(w3.to_wei(1, "gwei"))
+            # Set a reasonable cap: 2x base + priority
             max_fee = int(base_fee) * 2 + int(priority_fee)
             return {"maxFeePerGas": int(max_fee), "maxPriorityFeePerGas": int(priority_fee)}
     except Exception:
@@ -119,8 +147,19 @@ def declare_results(
         ],
     }
 
+    # Preview current fee params (for artifacts/visibility)
+    fee_preview = _fee_params(w3)
+    def _fee_mode(fp: Dict[str, int]) -> str:
+        if "maxFeePerGas" in fp or "maxPriorityFeePerGas" in fp:
+            # If env caps set, assume env mode, else auto
+            return "eip1559-env" if (settings.MAX_FEE_GWEI is not None) else "eip1559-auto"
+        if "gasPrice" in fp:
+            return "legacy-fallback"
+        return "unknown"
+    fee_preview_mode = _fee_mode(fee_preview)
+
     if not send:
-        return {"dry_run": True, "payload": payload}
+        return {"dry_run": True, "payload": payload, "fee_params_preview": fee_preview, "fee_params_preview_mode": fee_preview_mode}
 
     if not settings.PRIVATE_KEY:
         raise RuntimeError("PRIVATE_KEY not configured for sending transactions")
@@ -129,10 +168,15 @@ def declare_results(
 
     tx_hashes: List[str] = []
     receipts: List[Dict[str, Any]] = []
+    used_fee_params: List[Dict[str, Any]] = []
     nonce = w3.eth.get_transaction_count(account.address)
 
     for (participants, percentages) in chunks:
         fee = _fee_params(w3)
+        used_fee_params.append({
+            "params": {k: int(v) for k, v in fee.items()},
+            "mode": _fee_mode(fee),
+        })
         tx = contract.functions.declareResults(int(challenge_id), participants, percentages).build_transaction({
             "from": account.address,
             "nonce": nonce,
@@ -149,18 +193,41 @@ def declare_results(
                 tx["gas"] = 1_000_000
 
         signed = account.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed.rawTransaction)
+        raw_tx = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+        if raw_tx is None:
+            raise RuntimeError("SignedTransaction missing raw transaction bytes (web3 compat issue)")
+        tx_hash = w3.eth.send_raw_transaction(raw_tx)
         tx_hash_hex = tx_hash.hex()
         tx_hashes.append(tx_hash_hex)
 
         # Wait for receipt (optional; could be async in production)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+        # Normalize keys across different web3 versions
+        r_status = int(getattr(receipt, "status", getattr(receipt, "status", 0)))
+        r_gas_used = getattr(receipt, "gasUsed", None)
+        if r_gas_used is None:
+            r_gas_used = getattr(receipt, "gas_used", None)
+        r_block = getattr(receipt, "blockNumber", None)
+        if r_block is None:
+            r_block = getattr(receipt, "block_number", None)
+        # Some providers expose effectiveGasPrice; include when available
+        eff = getattr(receipt, "effectiveGasPrice", None)
+        if eff is None:
+            eff = getattr(receipt, "effective_gas_price", None)
         receipts.append({
             "transactionHash": tx_hash_hex,
-            "status": int(receipt.status),
-            "gasUsed": int(receipt.gasUsed),
-            "blockNumber": int(receipt.blockNumber),
+            "status": int(r_status if r_status is not None else 0),
+            "gasUsed": int(r_gas_used if r_gas_used is not None else 0),
+            "blockNumber": int(r_block if r_block is not None else 0),
+            "effectiveGasPrice": int(eff) if eff is not None else None,
         })
         nonce += 1
 
-    return {"dry_run": False, "payload": payload, "tx_hashes": tx_hashes, "receipts": receipts}
+    return {
+        "dry_run": False,
+        "payload": payload,
+        "tx_hashes": tx_hashes,
+        "receipts": receipts,
+        "used_fee_params": used_fee_params,
+        "fee_params_preview_mode": fee_preview_mode,
+    }

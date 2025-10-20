@@ -1,4 +1,5 @@
 from pydantic import Field
+from pydantic import AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,8 +14,10 @@ class Settings(BaseSettings):
     MOTIFY_CONTRACT_ADDRESS: str | None = None
     MOTIFY_CONTRACT_ABI_PATH: str | None = "./abi/Motify.json"
     # Chain writer (declare results)
-    PRIVATE_KEY: str | None = None
-    GAS_PRICE_GWEI: float | None = None
+    # Accept either PRIVATE_KEY or legacy SERVER_SIGNER_PRIVATE_KEY from env
+    PRIVATE_KEY: str | None = Field(default=None, validation_alias=AliasChoices("PRIVATE_KEY", "SERVER_SIGNER_PRIVATE_KEY"))
+    # EIP-1559 fee controls (preferred). If set, will use these values instead of auto-estimate.
+    MAX_FEE_GWEI: float | None = None
     GAS_LIMIT: int | None = None
     # Progress token lookup (optional, for provider API calls)
     USER_TOKENS_TABLE: str | None = None

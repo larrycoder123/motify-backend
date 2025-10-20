@@ -13,9 +13,15 @@ from app.core.config import settings
 class ChainReader:
     def __init__(self, rpc_url: str, contract_address: str, abi_path: str):
         self.w3 = Web3(Web3.HTTPProvider(rpc_url))
-        with Path(abi_path).open("r", encoding="utf-8") as f:
-            abi = json.load(f)
-        self.contract: Contract = self.w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=abi)
+        # Resolve ABI path to avoid CWD issues and support artifact objects
+        self.abi_path = str(Path(abi_path).resolve())
+        with Path(self.abi_path).open("r", encoding="utf-8") as f:
+            raw = json.load(f)
+        abi = raw.get("abi") if isinstance(raw, dict) and "abi" in raw else raw
+        if not isinstance(abi, list):
+            raise RuntimeError("Invalid ABI JSON: expected list or artifact with 'abi' key")
+        self.contract_address = Web3.to_checksum_address(contract_address)
+        self.contract: Contract = self.w3.eth.contract(address=self.contract_address, abi=abi)
 
     @classmethod
     def from_settings(cls) -> Optional["ChainReader"]:
@@ -24,7 +30,27 @@ class ChainReader:
         return cls(settings.WEB3_RPC_URL, settings.MOTIFY_CONTRACT_ADDRESS, settings.MOTIFY_CONTRACT_ABI_PATH)
 
     def get_all_challenges(self, limit: int = 1000) -> List[Dict[str, Any]]:
-        res = self.contract.functions.getAllChallenges(limit).call()
+        try:
+            res = self.contract.functions.getAllChallenges(limit).call()
+        except Exception as e:
+            # Provide actionable diagnostics for common misconfigurations
+            try:
+                chain_id = self.w3.eth.chain_id
+            except Exception:
+                chain_id = None
+            try:
+                code = self.w3.eth.get_code(self.contract_address)
+                code_len = len(code or b"")
+            except Exception:
+                code_len = None
+            diag = {
+                "error": str(e),
+                "chain_id": chain_id,
+                "contract_address": self.contract_address,
+                "contract_code_len": code_len,
+                "abi_path": self.abi_path,
+            }
+            raise RuntimeError(f"getAllChallenges call failed; diagnostics: {diag}")
         parsed: List[Dict[str, Any]] = []
         for item in res:
             # Support both old and new ABI layouts
@@ -59,7 +85,27 @@ class ChainReader:
         return parsed
 
     def get_challenge_detail(self, challenge_id: int) -> Dict[str, Any]:
-        d = self.contract.functions.getChallengeById(challenge_id).call()
+        try:
+            d = self.contract.functions.getChallengeById(challenge_id).call()
+        except Exception as e:
+            try:
+                chain_id = self.w3.eth.chain_id
+            except Exception:
+                chain_id = None
+            try:
+                code = self.w3.eth.get_code(self.contract_address)
+                code_len = len(code or b"")
+            except Exception:
+                code_len = None
+            diag = {
+                "error": str(e),
+                "chain_id": chain_id,
+                "contract_address": self.contract_address,
+                "contract_code_len": code_len,
+                "abi_path": self.abi_path,
+                "challenge_id": int(challenge_id),
+            }
+            raise RuntimeError(f"getChallengeById call failed; diagnostics: {diag}")
         # Old: (id,recipient,start,end,isPrivate,apiType,goalType,goalAmount,description,totalDonation,resultsFinalized,participants[])
         # New: (id,recipient,start,end,isPrivate,name,apiType,goalType,goalAmount,description,totalDonation,resultsFinalized,participants[])
         length = len(d)
@@ -107,4 +153,23 @@ class ChainReader:
             "total_donation_amount": int(total_donation),
             "results_finalized": bool(results_finalized),
             "participants": participants,
+        }
+
+    def sanity(self) -> Dict[str, Any]:
+        """Return basic diagnostics for easier troubleshooting."""
+        try:
+            chain_id = self.w3.eth.chain_id
+        except Exception:
+            chain_id = None
+        try:
+            code = self.w3.eth.get_code(self.contract_address)
+            code_len = len(code or b"")
+        except Exception:
+            code_len = None
+        return {
+            "rpc_url": settings.WEB3_RPC_URL,
+            "contract_address": self.contract_address,
+            "chain_id": chain_id,
+            "contract_code_len": code_len,
+            "abi_path": self.abi_path,
         }

@@ -23,7 +23,7 @@ def _get_resp_data(resp: Any) -> List[Dict[str, Any]]:
     return []
 
 
-def fetch_and_cache_ended_challenges(limit: int = 1000, only_ready_to_end: bool = True) -> Dict[str, Any]:
+def fetch_and_cache_ended_challenges(limit: int = 1000, only_ready_to_end: bool = True, exclude_finished: bool = True) -> Dict[str, Any]:
     """Fetch challenges from chain and cache ended & not-finalized ones into Supabase."""
     _ensure_web3_configured()
     reader = ChainReader.from_settings()
@@ -40,8 +40,28 @@ def fetch_and_cache_ended_challenges(limit: int = 1000, only_ready_to_end: bool 
     ts = int(now())
     filtered = [c for c in items if (not only_ready_to_end) or (c["end_time"] <= ts and not c["results_finalized"])]
 
+    # Optionally skip already-archived challenges (present in finished_challenges)
+    archived_ids: set[int] = set()
+    if exclude_finished and filtered:
+        try:
+            ids = [int(c["challenge_id"]) for c in filtered]
+            resp_arch = (
+                dal.client
+                .table("finished_challenges")
+                .select("challenge_id")
+                .eq("contract_address", settings.MOTIFY_CONTRACT_ADDRESS)
+                .in_("challenge_id", ids)
+                .execute()
+            )
+            archived_rows = _get_resp_data(resp_arch)
+            archived_ids = {int(r["challenge_id"]) for r in archived_rows}
+        except Exception:
+            archived_ids = set()
+
     rows = []
     for c in filtered:
+        if exclude_finished and int(c["challenge_id"]) in archived_ids:
+            continue
         rows.append({
             "contract_address": settings.MOTIFY_CONTRACT_ADDRESS,
             "challenge_id": c["challenge_id"],
@@ -66,6 +86,8 @@ def fetch_and_cache_ended_challenges(limit: int = 1000, only_ready_to_end: bool 
         "fetched": len(items),
         "indexed": len(rows),
         "only_ready_to_end": only_ready_to_end,
+        "exclude_finished": exclude_finished,
+        "skipped_archived": len(archived_ids) if exclude_finished else 0,
         "supabase_response": supabase_response,
     }
 
@@ -77,6 +99,19 @@ def cache_participants(challenge_id: int) -> Dict[str, Any]:
     dal = SupabaseDAL.from_env()
     if not dal:
         raise RuntimeError("Supabase not configured")
+
+    # If already archived, skip any further caching
+    archived_chk = (
+        dal.client
+        .table("finished_challenges")
+        .select("challenge_id")
+        .eq("contract_address", settings.MOTIFY_CONTRACT_ADDRESS)
+        .eq("challenge_id", int(challenge_id))
+        .limit(1)
+        .execute()
+    )
+    if _get_resp_data(archived_chk):
+        return {"challenge_id": challenge_id, "participants_indexed": 0, "skipped": True, "reason": "already_archived"}
 
     # Enforce ready-state: challenge must be ended and not finalized in cache
     from time import time as now
@@ -198,7 +233,12 @@ def prepare_run(challenge_id: int, default_percent_ppm: int = 0) -> Dict[str, An
         stake = int(row["amount"])
         ratio = ratios.get(addr_key(addr))
         ppm = ratio_to_ppm(ratio) if ratio is not None else int(default_percent_ppm)
-        items.append({"user": addr, "stake_minor_units": stake, "percent_ppm": int(ppm)})
+        items.append({
+            "user": addr,
+            "stake_minor_units": stake,
+            "percent_ppm": int(ppm),
+            "progress_ratio": ratio,
+        })
 
     return {
         "challenge_id": challenge_id,
