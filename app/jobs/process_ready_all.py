@@ -29,8 +29,20 @@ def _annotate_items_with_batches(items: List[Dict[str, Any]], payload: Dict[str,
 
 def main() -> int:
     # Controls
-    default_percent_ppm = int(os.getenv("DEFAULT_PERCENT_PPM", "0"))
-    chunk_size = int(os.getenv("CHUNK_SIZE", "200"))
+    def _int_env(name: str, default: int) -> int:
+        val = os.getenv(name)
+        if val is None:
+            return default
+        sval = str(val).strip()
+        if sval == "":
+            return default
+        try:
+            return int(sval)
+        except Exception:
+            return default
+
+    default_percent_ppm = _int_env("DEFAULT_PERCENT_PPM", 0)
+    chunk_size = _int_env("CHUNK_SIZE", 200)
     # Default to dry-run unless explicitly enabled.
     # Accept both SEND_TX and TX_SEND env flags for convenience.
     send_flag = os.getenv("SEND_TX") or os.getenv("TX_SEND") or "false"

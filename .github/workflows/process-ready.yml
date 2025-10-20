@@ -43,7 +43,9 @@ jobs:
           CHUNK_SIZE: ${{ secrets.CHUNK_SIZE }}
           SEND_TX: ${{ secrets.SEND_TX }}
         run: |
-          python -m app.jobs.process_ready_all | tee process_ready_output.log
+          set -e
+          set -o pipefail
+          python -m app.jobs.process_ready_all 2>&1 | tee process_ready_output.log
 
       - name: Upload run log
         if: always()
@@ -51,3 +53,4 @@ jobs:
         with:
           name: process-ready-log
           path: process_ready_output.log
+          retention-days: 14
