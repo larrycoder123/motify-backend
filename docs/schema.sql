@@ -73,3 +73,16 @@ create table if not exists public.user_tokens (
 	primary key (wallet_address, provider)
 );
 create index if not exists idx_user_tokens_wallet_lower on public.user_tokens (lower(wallet_address));
+
+-- -----------------------------------------------------------------------------
+-- Security: Row Level Security (RLS)
+-- -----------------------------------------------------------------------------
+-- Enable RLS on all tables. With RLS enabled and no policies, only the
+-- service role (server-side key) can access data. The anon/auth roles will
+-- have no access until explicit policies are added.
+
+alter table if exists public.chain_challenges enable row level security;
+alter table if exists public.chain_participants enable row level security;
+alter table if exists public.finished_challenges enable row level security;
+alter table if exists public.finished_participants enable row level security;
+alter table if exists public.user_tokens enable row level security;

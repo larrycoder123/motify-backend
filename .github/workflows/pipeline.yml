@@ -1,0 +1,64 @@
+name: Motify pipeline
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # every 15 minutes
+  workflow_dispatch: {}
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run index and cache
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          WEB3_RPC_URL: ${{ secrets.WEB3_RPC_URL }}
+          MOTIFY_CONTRACT_ADDRESS: ${{ secrets.MOTIFY_CONTRACT_ADDRESS }}
+          MOTIFY_CONTRACT_ABI_PATH: ${{ secrets.MOTIFY_CONTRACT_ABI_PATH }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          MAX_FEE_GWEI: ${{ secrets.MAX_FEE_GWEI }}
+          STAKE_TOKEN_DECIMALS: ${{ secrets.STAKE_TOKEN_DECIMALS }}
+        run: |
+          python -m app.jobs.indexer_cli index-challenges --limit 1000
+          python -m app.jobs.indexer_cli index-ready-details --limit 200
+
+      - name: Prepare and declare (dry run first)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          WEB3_RPC_URL: ${{ secrets.WEB3_RPC_URL }}
+          MOTIFY_CONTRACT_ADDRESS: ${{ secrets.MOTIFY_CONTRACT_ADDRESS }}
+          MOTIFY_CONTRACT_ABI_PATH: ${{ secrets.MOTIFY_CONTRACT_ABI_PATH }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          MAX_FEE_GWEI: ${{ secrets.MAX_FEE_GWEI }}
+          STAKE_TOKEN_DECIMALS: ${{ secrets.STAKE_TOKEN_DECIMALS }}
+        run: |
+          # Replace 0 with a specific challenge_id if you want a targeted run.
+          # Here we demonstrate a pattern; in production you'd iterate ready challenges.
+          echo "Skipping direct declare in generic pipeline; add targeted step as needed."
+
+      - name: Archive (example - requires artifacts)
+        if: false
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          echo "Archive step is example-only; wire artifacts when declare is enabled."
