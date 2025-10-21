@@ -30,17 +30,54 @@ async function checkGitHubCredentials(walletAddress) {
 }
 
 // ============================================================================
-// Example 2: Initiate OAuth flow (link GitHub account)
+// Example 2: Create wallet signature (using ethers.js or web3.js)
 // ============================================================================
 
-async function connectGitHub(walletAddress) {
+// Using ethers.js v6
+async function signMessage(signer, message) {
+    const signature = await signer.signMessage(message);
+    return signature;
+}
+
+// Using wagmi (React hook)
+import { useSignMessage } from 'wagmi';
+
+function useOAuthSignature() {
+    const { signMessageAsync } = useSignMessage();
+
+    async function createSignature(provider, walletAddress, action = 'Connect') {
+        const timestamp = Math.floor(Date.now() / 1000);
+        const message = `${action} OAuth provider ${provider} ${action === 'Connect' ? 'to' : 'from'} wallet ${walletAddress.toLowerCase()} at ${timestamp}`;
+
+        const signature = await signMessageAsync({ message });
+
+        return { signature, timestamp };
+    }
+
+    return { createSignature };
+}
+
+// ============================================================================
+// Example 3: Initiate OAuth flow with signature (SECURE VERSION)
+// ============================================================================
+
+async function connectGitHub(walletAddress, signer) {
     try {
+        // Step 1: Create signature to prove wallet ownership
+        const timestamp = Math.floor(Date.now() / 1000);
+        const message = `Connect OAuth provider github to wallet ${walletAddress.toLowerCase()} at ${timestamp}`;
+        const signature = await signer.signMessage(message);
+
+        // Step 2: Call backend with signature
         const response = await fetch(
-            `http://localhost:8000/oauth/connect/github?wallet_address=${walletAddress}`
+            `http://localhost:8000/oauth/connect/github?` +
+            `wallet_address=${walletAddress}&` +
+            `signature=${signature}&` +
+            `timestamp=${timestamp}`
         );
         const data = await response.json();
 
-        // Redirect user to GitHub authorization page
+        // Step 3: Redirect user to GitHub authorization page
         window.location.href = data.auth_url;
 
         // User will be redirected back to: 
@@ -53,7 +90,7 @@ async function connectGitHub(walletAddress) {
 }
 
 // ============================================================================
-// Example 3: Handle OAuth callback in your frontend
+// Example 4: Handle OAuth callback in your frontend
 // ============================================================================
 
 // Create a route in your frontend: /oauth/result
@@ -89,13 +126,21 @@ function OAuthResultPage() {
 }
 
 // ============================================================================
-// Example 4: Disconnect GitHub (remove credentials)
+// Example 5: Disconnect GitHub with signature (SECURE VERSION)
 // ============================================================================
 
-async function disconnectGitHub(walletAddress) {
+async function disconnectGitHub(walletAddress, signer) {
     try {
+        // Step 1: Create signature to prove wallet ownership
+        const timestamp = Math.floor(Date.now() / 1000);
+        const message = `Disconnect OAuth provider github from wallet ${walletAddress.toLowerCase()} at ${timestamp}`;
+        const signature = await signer.signMessage(message);
+
+        // Step 2: Call backend with signature
         const response = await fetch(
-            `http://localhost:8000/oauth/disconnect/github/${walletAddress}`,
+            `http://localhost:8000/oauth/disconnect/github/${walletAddress}?` +
+            `signature=${signature}&` +
+            `timestamp=${timestamp}`,
             { method: 'DELETE' }
         );
         const data = await response.json();
@@ -111,24 +156,29 @@ async function disconnectGitHub(walletAddress) {
 }
 
 // ============================================================================
-// Example 5: Complete React component example
+// Example 6: Complete React component with wagmi hooks (SECURE VERSION)
 // ============================================================================
 
 import React, { useState, useEffect } from 'react';
+import { useAccount, useSignMessage } from 'wagmi';
 
-function GitHubConnectionButton({ walletAddress }) {
+function GitHubConnectionButton() {
+    const { address } = useAccount();
+    const { signMessageAsync } = useSignMessage();
     const [isConnected, setIsConnected] = useState(false);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        checkConnection();
-    }, [walletAddress]);
+        if (address) {
+            checkConnection();
+        }
+    }, [address]);
 
     async function checkConnection() {
         setLoading(true);
         try {
             const response = await fetch(
-                `http://localhost:8000/oauth/status/github/${walletAddress}`
+                `http://localhost:8000/oauth/status/github/${address}`
             );
             const data = await response.json();
             setIsConnected(data.has_credentials);
@@ -139,23 +189,54 @@ function GitHubConnectionButton({ walletAddress }) {
     }
 
     async function handleConnect() {
-        const response = await fetch(
-            `http://localhost:8000/oauth/connect/github?wallet_address=${walletAddress}`
-        );
-        const data = await response.json();
-        window.location.href = data.auth_url;
+        try {
+            // Create signature
+            const timestamp = Math.floor(Date.now() / 1000);
+            const message = `Connect OAuth provider github to wallet ${address.toLowerCase()} at ${timestamp}`;
+            const signature = await signMessageAsync({ message });
+
+            // Get auth URL
+            const response = await fetch(
+                `http://localhost:8000/oauth/connect/github?` +
+                `wallet_address=${address}&` +
+                `signature=${signature}&` +
+                `timestamp=${timestamp}`
+            );
+            const data = await response.json();
+
+            // Redirect to GitHub
+            window.location.href = data.auth_url;
+        } catch (error) {
+            console.error("Error connecting:", error);
+            alert("Failed to connect. Please try again.");
+        }
     }
 
     async function handleDisconnect() {
         if (!confirm("Are you sure you want to disconnect GitHub?")) return;
 
-        await fetch(
-            `http://localhost:8000/oauth/disconnect/github/${walletAddress}`,
-            { method: 'DELETE' }
-        );
-        setIsConnected(false);
+        try {
+            // Create signature
+            const timestamp = Math.floor(Date.now() / 1000);
+            const message = `Disconnect OAuth provider github from wallet ${address.toLowerCase()} at ${timestamp}`;
+            const signature = await signMessageAsync({ message });
+
+            // Call disconnect endpoint
+            await fetch(
+                `http://localhost:8000/oauth/disconnect/github/${address}?` +
+                `signature=${signature}&` +
+                `timestamp=${timestamp}`,
+                { method: 'DELETE' }
+            );
+
+            setIsConnected(false);
+        } catch (error) {
+            console.error("Error disconnecting:", error);
+            alert("Failed to disconnect. Please try again.");
+        }
     }
 
+    if (!address) return <div>Please connect your wallet</div>;
     if (loading) return <div>Loading...</div>;
 
     return (

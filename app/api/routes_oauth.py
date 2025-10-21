@@ -11,7 +11,7 @@ Flow:
    - Redirects user back to frontend with success/error
 5. Optional disconnect: DELETE /oauth/disconnect/{provider}/{wallet_address}
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Header
 from fastapi.responses import RedirectResponse
 from typing import Optional
 from datetime import datetime, timedelta
@@ -21,6 +21,7 @@ import logging
 from app.models.db import SupabaseDAL
 from app.services.oauth import oauth_service
 from app.core.config import settings
+from app.core.security import verify_wallet_signature
 
 router = APIRouter(prefix="/oauth", tags=["oauth"])
 
@@ -72,9 +73,18 @@ async def check_oauth_status(provider: str, wallet_address: str):
 async def initiate_oauth(
     provider: str,
     wallet_address: str = Query(..., description="User's wallet address"),
+    signature: str = Query(...,
+                           description="Signature proving wallet ownership"),
+    timestamp: int = Query(...,
+                           description="Unix timestamp when signature was created"),
 ):
     """
     Initiate OAuth flow for a provider.
+
+    Requires signature verification to prevent unauthorized credential linking.
+
+    The signature should be created by signing this message:
+    "Connect OAuth provider {provider} to wallet {wallet_address} at {timestamp}"
 
     Returns a redirect URL that the frontend should navigate to.
     """
@@ -82,6 +92,10 @@ async def initiate_oauth(
     if not oauth_provider:
         raise HTTPException(
             status_code=400, detail=f"Provider '{provider}' not supported")
+
+    # Verify wallet ownership via signature
+    message = f"Connect OAuth provider {provider} to wallet {wallet_address.lower()} at {timestamp}"
+    verify_wallet_signature(wallet_address, message, signature, timestamp)
 
     # Generate state token for CSRF protection
     state = secrets.token_urlsafe(32)
@@ -181,9 +195,21 @@ async def oauth_callback(
 
 
 @router.delete("/disconnect/{provider}/{wallet_address}")
-async def disconnect_oauth(provider: str, wallet_address: str):
+async def disconnect_oauth(
+    provider: str,
+    wallet_address: str,
+    signature: str = Query(...,
+                           description="Signature proving wallet ownership"),
+    timestamp: int = Query(...,
+                           description="Unix timestamp when signature was created"),
+):
     """
     Disconnect OAuth credentials for a wallet address and provider.
+
+    Requires signature verification to prevent unauthorized credential removal.
+
+    The signature should be created by signing this message:
+    "Disconnect OAuth provider {provider} from wallet {wallet_address} at {timestamp}"
     """
     db = SupabaseDAL.from_env()
     if not db:
@@ -193,6 +219,10 @@ async def disconnect_oauth(provider: str, wallet_address: str):
     if not oauth_service.get_provider(provider):
         raise HTTPException(
             status_code=400, detail=f"Provider '{provider}' not supported")
+
+    # Verify wallet ownership via signature
+    message = f"Disconnect OAuth provider {provider} from wallet {wallet_address.lower()} at {timestamp}"
+    verify_wallet_signature(wallet_address, message, signature, timestamp)
 
     # Delete token
     db.delete_user_token(wallet_address, provider)
