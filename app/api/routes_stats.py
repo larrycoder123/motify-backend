@@ -46,7 +46,6 @@ def get_user_stats(wallet: str = Query(..., description="User wallet address")):
             "success_percentage_overall": 0.0,
             "total_wagered": 0.0,
             "total_donations": 0.0,
-            "decimals": settings.STAKE_TOKEN_DECIMALS,
         }
 
     # Aggregate
@@ -79,5 +78,4 @@ def get_user_stats(wallet: str = Query(..., description="User wallet address")):
         "success_percentage_overall": round(success_percentage_overall, 2),
         "total_wagered": float(total_wagered),
         "total_donations": float(total_donations),
-        "decimals": settings.STAKE_TOKEN_DECIMALS,
     }
