@@ -16,6 +16,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Motify API", version="0.1.0")
 
     # CORS for local dev and preview origins
+    # Add wildcard for Vercel preview deployments
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -25,28 +26,43 @@ def create_app() -> FastAPI:
             "http://localhost:8080",
             "http://127.0.0.1:8080",
             "https://motify-nine.vercel.app",
+            "https://*.vercel.app",  # Add this for preview deployments
         ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["*"],  # Add this
     )
+
+    # Add a middleware to manually add CORS headers as a fallback
+    @app.middleware("http")
+    async def add_cors_headers(request, call_next):
+        response = await call_next(request)
+        origin = request.headers.get("origin")
+        allowed_origins = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "https://motify-nine.vercel.app",
+        ]
+        
+        if origin in allowed_origins or (origin and origin.endswith(".vercel.app")):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Methods"] = "*"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+        
+        return response
 
     # Routers
     app.include_router(health_router)
     app.include_router(stats_router)
     app.include_router(oauth_router)
-    # Indexer and chain reader endpoints removed; use internal services/CLI instead.
 
-    # Optional: tiny index-only job endpoint for Vercel Cron (guarded by header)
     @app.post("/jobs/index-and-cache")
     async def job_index_and_cache(x_cron_secret: str | None = Header(default=None, alias="x-cron-secret")):
-        # Protect with simple shared secret header when deployed on Vercel Cron
-        # Client must send header: x-cron-secret: <CRON_SECRET>
-        from fastapi import Request
-        # Use dependency injection to access headers
-        # Workaround: Accept param and fallback to reading from global context isn't ideal in FastAPI
-        # so we'll read directly from starlette Request via kwargs capture
-        # but here, for simplicity, expect frameworks to map header -> x_cron_secret
         expected = (settings.CRON_SECRET or "").strip()
         if expected:
             provided = (x_cron_secret or "").strip()
@@ -55,7 +71,6 @@ def create_app() -> FastAPI:
         try:
             out = indexer.fetch_and_cache_ended_challenges(
                 limit=500, only_ready_to_end=True, exclude_finished=True)
-            # Also ensure participants for ready challenges
             det = indexer.cache_details_for_ready(limit=200)
             return {"ok": True, "index": out, "details": det}
         except Exception as e:
@@ -63,12 +78,13 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
     @app.exception_handler(Exception)
-    async def generic_exception_handler(_, exc: Exception):
-        # Uniform error envelope
+    async def generic_exception_handler(request, exc: Exception):
         logging.error("Unhandled exception: %s", exc)
         logging.error("Traceback:\n%s", ''.join(
             traceback.format_exception(type(exc), exc, exc.__traceback__)))
-        return JSONResponse(
+        
+        # Create response with CORS headers
+        response = JSONResponse(
             status_code=500,
             content={
                 "error": {
@@ -78,6 +94,14 @@ def create_app() -> FastAPI:
                 }
             },
         )
+        
+        # Manually add CORS headers to error responses
+        origin = request.headers.get("origin", "")
+        if "vercel.app" in origin or "localhost" in origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+        return response
 
     return app
 
