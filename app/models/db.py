@@ -25,7 +25,7 @@ class SupabaseDAL:
             .upsert(items, on_conflict="contract_address,challenge_id")
             .execute()
         )
-    
+
     def upsert_chain_participants(self, items: List[Dict[str, Any]]):
         if not items:
             return {"count": 0}
@@ -70,5 +70,38 @@ class SupabaseDAL:
             .delete()
             .eq("contract_address", contract_address)
             .eq("challenge_id", challenge_id)
+            .execute()
+        )
+
+    # OAuth / user_tokens methods
+    def get_user_token(self, wallet_address: str, provider: str) -> Optional[Dict[str, Any]]:
+        """Get OAuth token for a wallet address and provider."""
+        result = (
+            self.client
+            .table("user_tokens")
+            .select("*")
+            .eq("wallet_address", wallet_address.lower())
+            .eq("provider", provider.lower())
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
+    def upsert_user_token(self, data: Dict[str, Any]) -> Any:
+        """Insert or update user OAuth token."""
+        return (
+            self.client
+            .table("user_tokens")
+            .upsert(data, on_conflict="wallet_address,provider")
+            .execute()
+        )
+
+    def delete_user_token(self, wallet_address: str, provider: str) -> Any:
+        """Delete OAuth token for a wallet address and provider."""
+        return (
+            self.client
+            .table("user_tokens")
+            .delete()
+            .eq("wallet_address", wallet_address.lower())
+            .eq("provider", provider.lower())
             .execute()
         )

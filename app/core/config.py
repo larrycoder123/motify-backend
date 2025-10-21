@@ -14,7 +14,8 @@ class Settings(BaseSettings):
     MOTIFY_CONTRACT_ABI_PATH: str | None = "./abi/Motify.json"
     # Chain writer (declare results)
     # Accept either PRIVATE_KEY or legacy SERVER_SIGNER_PRIVATE_KEY from env
-    PRIVATE_KEY: str | None = Field(default=None, validation_alias=AliasChoices("PRIVATE_KEY", "SERVER_SIGNER_PRIVATE_KEY"))
+    PRIVATE_KEY: str | None = Field(default=None, validation_alias=AliasChoices(
+        "PRIVATE_KEY", "SERVER_SIGNER_PRIVATE_KEY"))
     # EIP-1559 fee controls (preferred). If set, will use these values instead of auto-estimate.
     MAX_FEE_GWEI: float | None = None
     GAS_LIMIT: int | None = None
@@ -27,6 +28,10 @@ class Settings(BaseSettings):
     USER_TOKENS_ACCESS_TOKEN_COL: str | None = None  # e.g., "access_token"
     # Optional: secret to protect job endpoints (used by Vercel Cron)
     CRON_SECRET: str | None = None
+    # OAuth providers
+    GITHUB_CLIENT_ID: str | None = None
+    GITHUB_CLIENT_SECRET: str | None = None
+    FRONTEND_URL: str = Field(default="http://localhost:3000")
 
     # --- Validators to handle blank env values from CI ---
     @field_validator("MAX_FEE_GWEI", mode="before")
@@ -73,6 +78,8 @@ class Settings(BaseSettings):
         "USER_TOKENS_PROVIDER_COL",
         "USER_TOKENS_ACCESS_TOKEN_COL",
         "CRON_SECRET",
+        "GITHUB_CLIENT_ID",
+        "GITHUB_CLIENT_SECRET",
         mode="before",
     )
     def _blank_to_none_str(cls, v):  # noqa: N805

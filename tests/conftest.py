@@ -5,8 +5,15 @@ from threading import Thread
 import pytest
 import requests
 import uvicorn
+from fastapi.testclient import TestClient
 
 from app.main import app
+
+
+@pytest.fixture(scope="function")
+def client():
+    """Provide a FastAPI test client."""
+    return TestClient(app)
 
 
 @pytest.fixture(scope="session")

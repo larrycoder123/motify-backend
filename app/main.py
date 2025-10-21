@@ -6,6 +6,7 @@ import traceback
 
 from app.api.routes_health import router as health_router
 from app.api.routes_stats import router as stats_router
+from app.api.routes_oauth import router as oauth_router
 from app.core.config import settings
 from app.services import indexer
 from fastapi import Header
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(health_router)
     app.include_router(stats_router)
+    app.include_router(oauth_router)
     # Indexer and chain reader endpoints removed; use internal services/CLI instead.
 
     # Optional: tiny index-only job endpoint for Vercel Cron (guarded by header)
@@ -48,7 +50,8 @@ def create_app() -> FastAPI:
             if provided != expected:
                 return JSONResponse(status_code=401, content={"ok": False, "error": "unauthorized"})
         try:
-            out = indexer.fetch_and_cache_ended_challenges(limit=500, only_ready_to_end=True, exclude_finished=True)
+            out = indexer.fetch_and_cache_ended_challenges(
+                limit=500, only_ready_to_end=True, exclude_finished=True)
             # Also ensure participants for ready challenges
             det = indexer.cache_details_for_ready(limit=200)
             return {"ok": True, "index": out, "details": det}
@@ -60,7 +63,8 @@ def create_app() -> FastAPI:
     async def generic_exception_handler(_, exc: Exception):
         # Uniform error envelope
         logging.error("Unhandled exception: %s", exc)
-        logging.error("Traceback:\n%s", ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+        logging.error("Traceback:\n%s", ''.join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)))
         return JSONResponse(
             status_code=500,
             content={
@@ -71,7 +75,7 @@ def create_app() -> FastAPI:
                 }
             },
         )
-    
+
     return app
 
 
