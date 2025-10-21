@@ -5,6 +5,11 @@ A slim FastAPI backend exposing health and stats endpoints, plus internal jobs a
 ## Endpoints
 - GET `/health` → `{ ok: true, db: bool }`
 - GET `/stats/user?address=0x...` → Aggregated archived stats for a wallet
+- GET `/oauth/status/{provider}/{wallet_address}` → Check if wallet has valid OAuth credentials
+- GET `/oauth/connect/{provider}?wallet_address=0x...` → Initiate OAuth flow (returns auth_url)
+- GET `/oauth/callback/{provider}?code=...&state=...` → OAuth callback (redirects to frontend)
+- DELETE `/oauth/disconnect/{provider}/{wallet_address}` → Remove OAuth credentials
+- GET `/oauth/providers` → List available OAuth providers
 
 ## Local development (Windows)
 1. python -m venv .venv
@@ -25,6 +30,9 @@ Run tests:
 - STAKE_TOKEN_DECIMALS (default 6)
 - DEFAULT_PERCENT_PPM (optional default progress)
 - CRON_SECRET (optional, to secure any job endpoints)
+- GITHUB_CLIENT_ID (for GitHub OAuth)
+- GITHUB_CLIENT_SECRET (for GitHub OAuth)
+- FRONTEND_URL (for OAuth redirects, default: http://localhost:3000)
 
 See `.env.example` for placeholders (do not commit real secrets).
 

@@ -10,13 +10,18 @@ This file guides GitHub Copilot to generate relevant code and docs for this repo
 Motify is a Base-chain (L2 ETH) accountability app. In this slimmed-down backend, we only expose a health endpoint and keep minimal scaffolding to re-introduce features later.
 
 ## Current architecture & data flow
-- Framework: Minimal FastAPI app in `app/main.py` exposing only a health endpoint.
-- Data: Supabase (Postgres) via supabase-py is optional; the health route will attempt a lightweight query if env vars are configured. Schema stub lives in `docs/schema.sql`.
-- No chain listener, no webhooks, and no OAuth in this simplified codebase.
+- Framework: Minimal FastAPI app in `app/main.py` with health, stats, and OAuth endpoints.
+- Data: Supabase (Postgres) via supabase-py is optional; the health route will attempt a lightweight query if env vars are configured. Schema in `docs/schema.sql`.
+- OAuth: Modular OAuth service in `app/services/oauth.py` supports GitHub (extensible to other providers). Tokens stored in `user_tokens` table.
 - CORS: Allowed dev origins are configured in `app/main.py` for local tooling.
 
 ### HTTP API
 - GET `/health` → `{ ok: true, db: bool }` (db is true when Supabase URL and key are configured and a simple select succeeds).
+- GET `/oauth/status/{provider}/{wallet_address}` → Check if wallet has valid OAuth credentials
+- GET `/oauth/connect/{provider}?wallet_address=0x...` → Initiate OAuth flow (returns auth_url)
+- GET `/oauth/callback/{provider}?code=...&state=...` → OAuth callback (redirects to frontend)
+- DELETE `/oauth/disconnect/{provider}/{wallet_address}` → Remove OAuth credentials
+- GET `/oauth/providers` → List available OAuth providers
 
 ### Conventions
 - JSON fields: snake_case when expanding APIs.
@@ -37,9 +42,12 @@ Motify is a Base-chain (L2 ETH) accountability app. In this slimmed-down backend
 ## Files to know
 - `app/main.py` — App factory, routers, global error handler.
 - `app/api/routes_health.py` — Health endpoint that optionally pings Supabase.
-- `app/models/db.py` — Supabase DAL used by the health check.
-- `docs/schema.sql` — Schema stub placeholder for future DDL.
-- `tests/` — Minimal tests: DB connectivity and server boot.
+- `app/api/routes_oauth.py` — OAuth endpoints for linking wallet addresses with provider accounts.
+- `app/services/oauth.py` — Modular OAuth service supporting multiple providers.
+- `app/models/db.py` — Supabase DAL with methods for chain data and OAuth tokens.
+- `docs/schema.sql` — Database schema including user_tokens table for OAuth.
+- `tests/` — Tests for DB connectivity, server boot, and OAuth flow.
+- `examples/frontend_oauth_integration.js` — Frontend integration examples.
 
 ## Target architecture (roadmap)
 This repository is currently a slim backend intended primarily for health monitoring and environment validation. Future expansions (on-chain listeners, OAuth integrations, proofs ingestion, settlements) can be added back as separate modules and routes.
