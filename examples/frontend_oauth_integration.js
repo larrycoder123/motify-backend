@@ -81,7 +81,7 @@ async function connectGitHub(walletAddress, signer) {
         window.location.href = data.auth_url;
 
         // User will be redirected back to: 
-        // http://localhost:3000/oauth/result?success=true&provider=github
+        // http://localhost:8080/oauth/result?success=true&provider=github
         // (or with success=false and an error parameter)
 
     } catch (error) {

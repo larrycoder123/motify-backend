@@ -34,7 +34,7 @@ Run tests:
 - CRON_SECRET (optional, to secure any job endpoints)
 - GITHUB_CLIENT_ID (for GitHub OAuth)
 - GITHUB_CLIENT_SECRET (for GitHub OAuth)
-- FRONTEND_URL (for OAuth redirects, default: http://localhost:3000)
+- FRONTEND_URL (for OAuth redirects, default: http://localhost:8080)
 
 See `.env.example` for placeholders (do not commit real secrets).
 

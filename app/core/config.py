@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # OAuth providers
     GITHUB_CLIENT_ID: str | None = None
     GITHUB_CLIENT_SECRET: str | None = None
-    FRONTEND_URL: str = Field(default="http://localhost:3000")
+    FRONTEND_URL: str = Field(default="http://localhost:8080")
 
     # --- Validators to handle blank env values from CI ---
     @field_validator("MAX_FEE_GWEI", mode="before")

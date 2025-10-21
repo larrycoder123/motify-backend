@@ -44,7 +44,8 @@ class GitHubOAuthProvider(OAuthProvider):
     def __init__(self):
         self.client_id = settings.GITHUB_CLIENT_ID
         self.client_secret = settings.GITHUB_CLIENT_SECRET
-        self.redirect_uri = f"{settings.FRONTEND_URL}/oauth/callback"
+        # OAuth callback must go to backend first, then backend redirects to frontend
+        self.redirect_uri = "http://localhost:8000/oauth/callback/github"
         self.scope = "user:email"
 
     def get_provider_name(self) -> str:
