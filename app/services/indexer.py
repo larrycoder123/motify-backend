@@ -175,10 +175,13 @@ def list_ready_challenges(limit: int = 200) -> List[Dict[str, Any]]:
     
 
 
-def prepare_run(challenge_id: int, default_percent_ppm: int = 0) -> Dict[str, Any]:
+def prepare_run(challenge_id: int, default_percent_ppm: Optional[int] = None) -> Dict[str, Any]:
     if challenge_id < 0:
         raise ValueError("challenge_id must be >= 0")
-    if not (0 <= default_percent_ppm <= 1_000_000):
+
+    # Resolve fallback percent: CLI override > settings default
+    fallback_ppm = settings.DEFAULT_PERCENT_PPM if default_percent_ppm is None else int(default_percent_ppm)
+    if not (0 <= fallback_ppm <= 1_000_000):
         raise ValueError("default_percent_ppm must be between 0 and 1_000_000")
 
     dal = SupabaseDAL.from_env()
@@ -188,10 +191,9 @@ def prepare_run(challenge_id: int, default_percent_ppm: int = 0) -> Dict[str, An
     resp = (
         dal.client
         .table("chain_participants")
-        .select("participant_address,amount,result_declared")
+        .select("participant_address,amount")
         .eq("contract_address", settings.MOTIFY_CONTRACT_ADDRESS)
         .eq("challenge_id", challenge_id)
-        .eq("result_declared", False)
         .limit(2000)
         .execute()
     )
@@ -204,10 +206,9 @@ def prepare_run(challenge_id: int, default_percent_ppm: int = 0) -> Dict[str, An
             participants = (
                 dal.client
                 .table("chain_participants")
-                .select("participant_address,amount,result_declared")
+                .select("participant_address,amount")
                 .eq("contract_address", settings.MOTIFY_CONTRACT_ADDRESS)
                 .eq("challenge_id", challenge_id)
-                .eq("result_declared", False)
                 .limit(2000)
                 .execute()
             )
@@ -234,7 +235,7 @@ def prepare_run(challenge_id: int, default_percent_ppm: int = 0) -> Dict[str, An
         addr = row["participant_address"]
         stake = int(row["amount"])
         ratio = ratios.get(addr_key(addr))
-        ppm = ratio_to_ppm(ratio) if ratio is not None else int(default_percent_ppm)
+        ppm = ratio_to_ppm(ratio) if ratio is not None else int(fallback_ppm)
         items.append({
             "user": addr,
             "stake_minor_units": stake,
@@ -245,7 +246,7 @@ def prepare_run(challenge_id: int, default_percent_ppm: int = 0) -> Dict[str, An
     return {
         "challenge_id": challenge_id,
         "items": items,
-        "rule": {"type": "progress", "fallback_percent_ppm": int(default_percent_ppm)},
+        "rule": {"type": "progress", "fallback_percent_ppm": int(fallback_ppm)},
     }
 
 

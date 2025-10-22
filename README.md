@@ -4,7 +4,7 @@ A slim FastAPI backend exposing health and stats endpoints, plus internal jobs a
 
 ## Endpoints
 - GET `/health` → `{ ok: true, db: bool }`
-- GET `/stats/user?wallet=0x...` → Aggregated archived stats for a wallet
+- GET `/stats/user?address=0x...` → Aggregated archived stats for a wallet
 
 ### OAuth Endpoints (Signature Required)
 - GET `/oauth/status/{provider}/{wallet_address}` → Check if wallet has valid OAuth credentials (no signature required)
@@ -34,9 +34,8 @@ Run tests:
 - CRON_SECRET (optional, to secure any job endpoints)
 - GITHUB_CLIENT_ID (for GitHub OAuth)
 - GITHUB_CLIENT_SECRET (for GitHub OAuth)
-- BACKEND_URL (public base URL of this backend, used to build OAuth callback; e.g., https://your-service.onrender.com)
-- GITHUB_REDIRECT_URI (optional explicit override for the GitHub OAuth callback URL)
 - FRONTEND_URL (for OAuth redirects, default: http://localhost:8080)
+- NEYNAR_API_KEY (for Farcaster progress checks)
 
 See `.env.example` for placeholders (do not commit real secrets).
 
@@ -93,3 +92,54 @@ See `examples/frontend_oauth_integration.js` for complete implementation example
 - Supabase schema stub lives in `docs/schema.sql`.
 - ABI at `abi/Motify.json`.
 - OAuth operations use EIP-191 signatures for wallet ownership verification.
+
+## Progress engines
+
+### GitHub (contribution per day)
+- Uses GitHub GraphQL contributions calendar to count per-day contributions in the challenge window.
+- Requires a token per wallet stored in Supabase `user_tokens` with `provider=github` and `access_token` set to the GitHub token.
+- Scope: with `user:email`, only public contributions are counted; to include private, request `repo` scope and reconnect.
+- Fallback: if a participant has no token or the call fails, their percent defaults to `DEFAULT_PERCENT_PPM` (1_000_000 by default = 100%).
+
+### Farcaster (one cast per day)
+- Uses Neynar to count per-day casts in the challenge window.
+- User resolution order:
+  1) If `user_tokens` has `provider=farcaster` and `access_token` is a numeric string, it's treated as FID and used.
+  2) Otherwise, resolve FID from wallet via Neynar bulk API: `/v2/farcaster/user/bulk-by-address/?addresses=0x...`.
+  3) If still not found, try verifications API: `/v2/farcaster/verification/by-address?address=0x...` (requires the wallet be verified on profile).
+  4) If all fail, the participant falls back to `DEFAULT_PERCENT_PPM`.
+- Env: set `NEYNAR_API_KEY`.
+ - Optional: if your Neynar plan exposes a different endpoint for listing casts, set `FARCASTER_USER_CASTS_URL` to override the default `https://api.neynar.com/v2/farcaster/feed/user/casts/`.
+ - Notes: we request `include_replies=true` and handle pagination via the `next.cursor` value returned by the API.
+- Optional: to guarantee resolution without relying on verifications, store the user’s FID in `user_tokens` (`provider=farcaster`, `access_token="<fid>"`).
+
+### Quick testing (Python REPL)
+```python
+from datetime import date, timedelta
+from app.services.progress import _github_ratio_for_user, ratio_to_ppm, _resolve_farcaster_fid_for_address, _farcaster_ratio_for_fid
+import os
+
+# GitHub (needs GITHUB_TOKEN)
+gtoken = os.getenv('GITHUB_TOKEN')
+end = date.today() - timedelta(days=1)
+start = end - timedelta(days=13)
+if gtoken:
+  gr = _github_ratio_for_user(gtoken, start, end, required_per_day=1)
+  print('github ratio:', gr, 'ppm:', ratio_to_ppm(gr))
+else:
+  print('Set GITHUB_TOKEN to test GitHub progress')
+
+# Farcaster (needs NEYNAR_API_KEY)
+api_key = os.getenv('NEYNAR_API_KEY')
+addr = '0x...'  # set a wallet verified on Farcaster
+if api_key:
+  fid = _resolve_farcaster_fid_for_address(api_key, addr.lower())
+  print('resolved fid:', fid)
+  if fid:
+    fr = _farcaster_ratio_for_fid(api_key, fid, start, end, required_per_day=1)
+    print('farcaster ratio:', fr, 'ppm:', ratio_to_ppm(fr))
+  else:
+    print('No FID found (no Farcaster verification) → fallback will apply')
+else:
+  print('Set NEYNAR_API_KEY to test Farcaster progress')
+```

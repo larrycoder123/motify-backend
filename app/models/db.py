@@ -73,52 +73,6 @@ class SupabaseDAL:
             .execute()
         )
 
-    # ----------------------------
-    # OAuth user_tokens helpers
-    # ----------------------------
-    def get_user_token(self, wallet_address: str, provider: str):
-        w = (wallet_address or "").lower()
-        p = (provider or "").lower()
-        resp = (
-            self.client
-            .table("user_tokens")
-            .select("wallet_address,provider,access_token,refresh_token,expires_at,scopes,updated_at")
-            .eq("wallet_address", w)
-            .eq("provider", p)
-            .limit(1)
-            .execute()
-        )
-        data = getattr(resp, "data", None)
-        if data is None and hasattr(resp, "model_dump"):
-            data = resp.model_dump().get("data")
-        return (data[0] if data else None)
-
-    def upsert_user_token(self, item: dict):
-        # Normalize fields and enforce lowercase wallet/provider
-        item = dict(item or {})
-        if "wallet_address" in item and item["wallet_address"]:
-            item["wallet_address"] = str(item["wallet_address"]).lower()
-        if "provider" in item and item["provider"]:
-            item["provider"] = str(item["provider"]).lower()
-        return (
-            self.client
-            .table("user_tokens")
-            .upsert(item, on_conflict="wallet_address,provider")
-            .execute()
-        )
-
-    def delete_user_token(self, wallet_address: str, provider: str):
-        w = (wallet_address or "").lower()
-        p = (provider or "").lower()
-        return (
-            self.client
-            .table("user_tokens")
-            .delete()
-            .eq("wallet_address", w)
-            .eq("provider", p)
-            .execute()
-        )
-
     # OAuth / user_tokens methods
     def get_user_token(self, wallet_address: str, provider: str) -> Optional[Dict[str, Any]]:
         """Get OAuth token for a wallet address and provider."""

@@ -9,10 +9,17 @@ async def health():
     dal = SupabaseDAL.from_env()
     db_ok = False
     if dal:
-        try:
-            # lightweight query against a small table
-            dal.client.table("users").select("wallet").limit(1).execute()
-            db_ok = True
-        except Exception:
-            db_ok = False
+            # Try a few known tables from our schema; stop at the first success
+            probes = [
+                ("user_tokens", "wallet_address"),
+                ("chain_challenges", "contract_address"),
+                ("finished_challenges", "contract_address"),
+            ]
+            for table, col in probes:
+                try:
+                    dal.client.table(table).select(col).limit(1).execute()
+                    db_ok = True
+                    break
+                except Exception:
+                    continue
     return {"ok": True, "db": db_ok}

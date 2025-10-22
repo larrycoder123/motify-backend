@@ -25,14 +25,14 @@ def main(argv=None):
 
     p4 = sub.add_parser("prepare", help="Prepare a progress-based run (fallback to constant ppm)")
     p4.add_argument("challenge_id", type=int)
-    p4.add_argument("--default-percent-ppm", type=int, default=0)
+    p4.add_argument("--default-percent-ppm", type=int, default=None, help="Override fallback percent in PPM (default: settings.DEFAULT_PERCENT_PPM)")
 
     p6 = sub.add_parser("index-ready-details", help="Cache participants for all ready challenges")
     p6.add_argument("--limit", type=int, default=200)
 
     p7 = sub.add_parser("declare-results", help="Declare results on-chain (dry-run by default)")
     p7.add_argument("challenge_id", type=int)
-    p7.add_argument("--default-percent-ppm", type=int, default=0, help="Fallback percent if progress missing")
+    p7.add_argument("--default-percent-ppm", type=int, default=None, help="Fallback percent (PPM) if progress missing; default: settings.DEFAULT_PERCENT_PPM")
     p7.add_argument("--chunk-size", type=int, default=200)
     p7.add_argument("--send", action="store_true", help="Actually broadcast transactions")
     p7.add_argument("--no-prepare", action="store_true", help="Skip prepare_run and assume external item source (not yet supported)")
@@ -70,13 +70,15 @@ def main(argv=None):
         elif args.cmd == "ready":
             out = {"data": indexer.list_ready_challenges(limit=args.limit)}
         elif args.cmd == "prepare":
-            out = indexer.prepare_run(args.challenge_id, default_percent_ppm=args.default_percent_ppm)
+            default_ppm = args.default_percent_ppm if args.default_percent_ppm is not None else settings.DEFAULT_PERCENT_PPM
+            out = indexer.prepare_run(args.challenge_id, default_percent_ppm=default_ppm)
         elif args.cmd == "index-ready-details":
             out = indexer.cache_details_for_ready(limit=args.limit)
         elif args.cmd == "declare-results":
             if args.no_prepare:
                 raise SystemExit("--no-prepare path not implemented; use default flow that runs prepare first.")
-            preview = indexer.prepare_run(args.challenge_id, default_percent_ppm=args.default_percent_ppm)
+            default_ppm = args.default_percent_ppm if args.default_percent_ppm is not None else settings.DEFAULT_PERCENT_PPM
+            preview = indexer.prepare_run(args.challenge_id, default_percent_ppm=default_ppm)
             out = chain_writer.declare_results(
                 args.challenge_id,
                 preview["items"],

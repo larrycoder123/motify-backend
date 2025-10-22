@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     GITHUB_CLIENT_SECRET: str | None = None
     BACKEND_URL: str = Field(default="http://localhost:8000")
     FRONTEND_URL: str = Field(default="http://localhost:8080")
+    # Default fallback percent (in PPM) when progress cannot be fetched
+    # 1_000_000 PPM = 100%
+    DEFAULT_PERCENT_PPM: int = 1_000_000
+    # Farcaster/Neynar API
+    NEYNAR_API_KEY: str | None = None
+    # (Removed) Farcaster IdRegistry on Optimism settings
+    # Optional override for Neynar "casts by user" endpoint URL
+    FARCASTER_USER_CASTS_URL: str | None = None
 
     # --- Validators to handle blank env values from CI ---
     @field_validator("MAX_FEE_GWEI", mode="before")
@@ -59,6 +67,24 @@ class Settings(BaseSettings):
             return 6
         return v
 
+    @field_validator("DEFAULT_PERCENT_PPM", mode="before")
+    def _default_percent_ppm(cls, v):  # noqa: N805
+        # Accept blank as default 1_000_000
+        if v is None:
+            return 1_000_000
+        if isinstance(v, str) and not v.strip():
+            return 1_000_000
+        # Coerce to int and clamp to [0, 1_000_000]
+        try:
+            iv = int(v)
+        except Exception:
+            iv = 1_000_000
+        if iv < 0:
+            iv = 0
+        if iv > 1_000_000:
+            iv = 1_000_000
+        return iv
+
     @field_validator("MOTIFY_CONTRACT_ABI_PATH", mode="before")
     def _blank_abi_default(cls, v):  # noqa: N805
         if v is None:
@@ -81,6 +107,8 @@ class Settings(BaseSettings):
         "CRON_SECRET",
         "GITHUB_CLIENT_ID",
         "GITHUB_CLIENT_SECRET",
+        "NEYNAR_API_KEY",
+        "FARCASTER_USER_CASTS_URL",
         # BACKEND_URL is left out intentionally to allow default when blank
         mode="before",
     )
