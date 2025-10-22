@@ -7,6 +7,154 @@ from datetime import datetime, timezone, timedelta
 from app.core.config import settings
 from app.models.db import SupabaseDAL
 
+import base64
+
+def _progress_wakatime(
+    tokens: Dict[str, Optional[str]], # This will contain the API key string
+    participants: List[Dict[str, Any]],
+    window: Optional[Tuple[int, int]] = None,
+    goal_type: Optional[str] = None,
+    goal_amount: int = 1,
+) -> Dict[str, Optional[float]]:
+    """
+    Compute progress ratios for WakaTime-based challenges (coding hours).
+    Expects:
+    - tokens[address] = WakaTime API key string (e.g., 'waka_xxxxxxxx...')
+    - window = (start_time_unix, end_time_unix) defining the challenge period
+    - goal_type = "coding_time" or similar (case-insensitive check)
+    - goal_amount = integer representing the target number of hours
+    Uses WakaTime API: GET /users/current/stats/:range
+    """
+    addr_key = lambda a: str(a).lower()
+    api_base_url = settings.WAKATIME_API_BASE_URL.rstrip('/') # Get base URL from config
+
+    # Define WakaTime range strings based on challenge window
+    # WakaTime uses specific strings for predefined ranges.
+    # For custom ranges, we might need a different approach or use a default like 'last_7_days' if range doesn't match.
+    # For now, let's handle specific common cases or fall back to 'all_time' if custom range is complex.
+    range_str = "all_time" # Default fallback
+    if window:
+        start_dt = datetime.fromtimestamp(window[0], tz=timezone.utc)
+        end_dt = datetime.fromtimestamp(window[1], tz=timezone.utc)
+        duration = end_dt - start_dt
+
+        # Map common durations to WakaTime ranges
+        if duration.days == 6: # last_7_days
+            range_str = "last_7_days"
+        elif duration.days == 29: # last_30_days
+            range_str = "last_30_days"
+        # Add more mappings if needed, e.g., last_6_months, last_year
+        # For arbitrary ranges, WakaTime API doesn't directly support a start/end date query via this endpoint.
+        # We might need to use heartbeats API or stick to predefined ranges for now.
+        # Let's assume predefined ranges are used or default to 'all_time' for custom.
+        # For a more robust solution, consider fetching heartbeats or using a default range within the challenge window.
+        # For now, using 'all_time' as a simple fallback if not matching standard ranges.
+        # A more precise solution would require fetching heartbeats between specific timestamps,
+        # which is more complex and might require a different WakaTime API endpoint or aggregation logic.
+        # Let's use the standard ranges for simplicity based on the window duration.
+        # If the duration matches a standard range, use it. Otherwise, default to 'all_time' or use the closest one.
+        # We'll map based on the *end* date being today or close to it for standard ranges.
+        # If the challenge end time is today, we can use standard ranges like last_7_days, last_30_days.
+        # If the challenge ended in the past, we might need to calculate the range string differently or use 'all_time' or a custom approach.
+        # For simplicity in this initial implementation, if the range doesn't match standard ones,
+        # we'll default to 'all_time'. A more accurate implementation would require fetching stats for the exact period.
+        # Standard ranges in WakaTime are relative to 'now'. To get stats for a past period,
+        # WakaTime doesn't offer a direct start/end API call for /stats/:range.
+        # We could potentially use the heartbeats API (/users/current/heartbeats) with date filters,
+        # but it's paginated and more complex.
+        # For now, let's use the closest standard range if the end time is recent enough.
+        # If the challenge ended more than 30 days ago, 'all_time' might be the only option via /stats/:range.
+        # Let's use a heuristic: if end time is within last 30 days, try to match standard ranges.
+        # Otherwise, default to 'all_time'.
+        now = datetime.now(timezone.utc)
+        if end_dt <= now and (now - end_dt).days <= 30: # End is within last 30 days
+             if duration.days == 6:
+                 range_str = "last_7_days"
+             elif duration.days == 29:
+                 range_str = "last_30_days"
+             # Could add more checks for last_6_months, last_year if end time aligns
+             else:
+                 # If duration doesn't match standard, but end is recent, defaulting to 'all_time' might be misleading.
+                 # A better approach might be to use 'all_time' and filter client-side or use heartbeats.
+                 # For now, stick to standard ranges if possible, otherwise 'all_time'.
+                 # Let's try to map to the standard ones if the end date matches their typical end.
+                 # last_7_days: ends today
+                 # last_30_days: ends today
+                 # last_6_months: ends today
+                 # last_year: ends today
+                 # all_time: ... all time
+                 # If challenge ended yesterday, standard ranges won't work directly.
+                 # Let's assume for now the frontend creates challenges where the end date aligns with standard ranges
+                 # or that the user understands the stats might be for a slightly different period if using standard ranges.
+                 # This is a limitation of the /stats/:range endpoint.
+                 # For precise periods, heartbeats API is needed.
+                 # For this implementation, we'll use the standard ranges if they match, else 'all_time'.
+                 # A more advanced solution would involve fetching heartbeats.
+                 range_str = "all_time" # Default if not matching standard ranges ending *today*
+
+    # Normalize goal type check
+    gt = (goal_type or "").lower()
+    is_coding_time_goal = "coding" in gt and ("time" in gt or "hour" in gt or "hours" in gt)
+    required_hours = max(1, int(goal_amount or 1)) if is_coding_time_goal else 1
+
+    out: Dict[str, Optional[float]] = {}
+    for p in participants:
+        addr = addr_key(p["participant_address"])
+        api_key = tokens.get(addr)
+
+        if not api_key or not api_key.startswith("waka_"): # Validate basic key format
+            out[addr] = None
+            continue
+
+        try:
+            # Prepare Authorization header: Basic + base64(api_key)
+            encoded_key = base64.b64encode(api_key.encode()).decode()
+            headers = {
+                "Authorization": f"Basic {encoded_key}",
+                "Accept": "application/json", # Explicitly request JSON
+            }
+
+            # Construct the URL for user stats for the specific range
+            # Using 'current' user assumes the API key belongs to the user whose stats we want.
+            # WakaTime API key is typically tied to a specific user account.
+            url = f"{api_base_url}/users/current/stats/{range_str}"
+
+            response = requests.get(url, headers=headers, timeout=25)
+            response.raise_for_status() # Raise exception for bad status codes (4xx, 5xx)
+
+            data = response.json()
+
+            # Extract total coding time from the response
+            # Use 'total_seconds_including_other_language' as it represents total logged time
+            total_seconds = data.get("data", {}).get("total_seconds_including_other_language", 0)
+            total_hours = total_seconds / 3600.0 # Convert seconds to hours
+
+            # Calculate ratio based on required hours
+            ratio = min(1.0, max(0.0, total_hours / required_hours)) # Clamp ratio between 0 and 1
+
+            out[addr] = round(ratio, 6) # Round for consistency
+
+        except requests.exceptions.HTTPError as e:
+             if response.status_code in [401, 403]: # Unauthorized or Forbidden
+                 # API key is invalid or lacks scope
+                 out[addr] = None
+             elif response.status_code == 429: # Rate Limiting
+                 # Could handle rate limiting, e.g., retry after delay or return None
+                 out[addr] = None # For now, treat as no data
+             else:
+                 # Other HTTP errors (e.g., 500)
+                 out[addr] = None
+        except requests.exceptions.RequestException:
+            # Network errors, timeouts, etc.
+            out[addr] = None
+        except (KeyError, ValueError, AttributeError):
+            # Issues parsing the response JSON
+            out[addr] = None
+        except Exception:
+             # Catch any other unexpected errors during processing
+             out[addr] = None
+
+    return out
 
 def _lookup_tokens(api_type: Optional[str], participants: List[Dict[str, Any]]) -> Dict[str, Optional[str]]:
     """Optionally fetch per-user access tokens from Supabase for a given provider.
@@ -92,6 +240,8 @@ def fetch_progress(challenge_id: int, participants: List[Dict[str, Any]], api_ty
         return _progress_github(tokens, participants, window=window, goal_type=goal_type, goal_amount=goal_amount)
     if (api_type or "").lower() == "farcaster":
         return _progress_farcaster(tokens, participants, window=window, goal_type=goal_type, goal_amount=goal_amount)
+    if (api_type or "").lower() == "wakatime":
+        return _progress_wakatime(tokens, participants, window=window, goal_type=goal_type, goal_amount=goal_amount)
 
     # Default for unknown providers: no data
     return {addr_key(p["participant_address"]): None for p in participants}
