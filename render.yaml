@@ -9,12 +9,14 @@ services:
     envVars:
       - key: ENV
         value: production
+      # Supabase (required for /health, /stats, /oauth)
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
+      # Web3 / Contract (required for /stats)
       - key: WEB3_RPC_URL
         sync: false
       - key: MOTIFY_CONTRACT_ADDRESS
@@ -25,5 +27,21 @@ services:
         value: "6"
       - key: MAX_FEE_GWEI
         sync: false
+      # OAuth providers (required for /oauth endpoints)
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: BACKEND_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      # Farcaster progress (required if processing Farcaster challenges)
+      - key: NEYNAR_API_KEY
+        sync: false
+      # Optional: Default fallback progress percentage (100% = 1000000 PPM)
+      - key: DEFAULT_PERCENT_PPM
+        value: "1000000"
+      # Optional: CRON job authentication
       - key: CRON_SECRET
         sync: false
