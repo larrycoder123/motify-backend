@@ -38,6 +38,7 @@ jobs:
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
           MAX_FEE_GWEI: ${{ secrets.MAX_FEE_GWEI }}
           STAKE_TOKEN_DECIMALS: ${{ secrets.STAKE_TOKEN_DECIMALS }}
+          NEYNAR_API_KEY: ${{ secrets.NEYNAR_API_KEY }}
           # Optional controls (set these secrets if you want to override the defaults)
           DEFAULT_PERCENT_PPM: ${{ secrets.DEFAULT_PERCENT_PPM }}
           CHUNK_SIZE: ${{ secrets.CHUNK_SIZE }}

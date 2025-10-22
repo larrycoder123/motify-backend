@@ -41,7 +41,8 @@ def main() -> int:
         except Exception:
             return default
 
-    default_percent_ppm = _int_env("DEFAULT_PERCENT_PPM", 0)
+    # Prefer explicit env override; otherwise fall back to app settings.DEFAULT_PERCENT_PPM
+    default_percent_ppm = _int_env("DEFAULT_PERCENT_PPM", int(settings.DEFAULT_PERCENT_PPM or 0))
     chunk_size = _int_env("CHUNK_SIZE", 200)
     # Default to dry-run unless explicitly enabled.
     # Accept both SEND_TX and TX_SEND env flags for convenience.
@@ -65,6 +66,10 @@ def main() -> int:
             preview = indexer.prepare_run(cid, default_percent_ppm=default_percent_ppm)
             all_items = list(preview.get("items") or [])
 
+            # Safety: if no participant has a computed progress_ratio (all None),
+            # avoid sending transactions to prevent unintended 0% or fallback-based declarations.
+            all_progress_missing = (len(all_items) > 0) and all(it.get("progress_ratio") is None for it in all_items)
+
             # If we can read on-chain state, restrict declare to only pending participants
             pending_addrs_lc: set[str] = set()
             declared_onchain: List[Dict[str, Any]] = []
@@ -87,9 +92,19 @@ def main() -> int:
 
             try:
                 # If there are pending items and sending is enabled, declare them; otherwise skip sending
-                if items and send:
+                # Additional guard: skip when all progress is missing (likely provider API misconfig)
+                if items and send and not all_progress_missing:
                     dec = chain_writer.declare_results(cid, items, chunk_size=chunk_size, send=True)
                     declared_now = not dec.get("dry_run", True)
+                elif items and send and all_progress_missing:
+                    # Encode a clear reason in the declare preview
+                    dec = {
+                        "dry_run": True,
+                        "reason": "progress_missing_for_all_participants",
+                        "payload": {"challenge_id": cid, "chunks": []},
+                        "tx_hashes": [],
+                        "used_fee_params": [],
+                    }
             except Exception as e:
                 msg = str(e)
                 # Reconcile path on already-declared revert: refresh on-chain state
