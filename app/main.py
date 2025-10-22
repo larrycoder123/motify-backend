@@ -7,6 +7,7 @@ import traceback
 from app.api.routes_health import router as health_router
 from app.api.routes_stats import router as stats_router
 from app.api.routes_oauth import router as oauth_router
+from app.api.routes_oauth import router as oauth_router
 from app.core.config import settings
 from app.services import indexer
 from fastapi import Header
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(health_router)
     app.include_router(stats_router)
+    app.include_router(oauth_router)
     app.include_router(oauth_router)
 
     @app.post("/jobs/index-and-cache")

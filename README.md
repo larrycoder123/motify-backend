@@ -4,7 +4,7 @@ A slim FastAPI backend exposing health and stats endpoints, plus internal jobs a
 
 ## Endpoints
 - GET `/health` → `{ ok: true, db: bool }`
-- GET `/stats/user?address=0x...` → Aggregated archived stats for a wallet
+- GET `/stats/user?wallet=0x...` → Aggregated archived stats for a wallet
 
 ### OAuth Endpoints (Signature Required)
 - GET `/oauth/status/{provider}/{wallet_address}` → Check if wallet has valid OAuth credentials (no signature required)
@@ -34,6 +34,8 @@ Run tests:
 - CRON_SECRET (optional, to secure any job endpoints)
 - GITHUB_CLIENT_ID (for GitHub OAuth)
 - GITHUB_CLIENT_SECRET (for GitHub OAuth)
+- BACKEND_URL (public base URL of this backend, used to build OAuth callback; e.g., https://your-service.onrender.com)
+- GITHUB_REDIRECT_URI (optional explicit override for the GitHub OAuth callback URL)
 - FRONTEND_URL (for OAuth redirects, default: http://localhost:8080)
 
 See `.env.example` for placeholders (do not commit real secrets).

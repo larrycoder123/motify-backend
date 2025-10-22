@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     # OAuth providers
     GITHUB_CLIENT_ID: str | None = None
     GITHUB_CLIENT_SECRET: str | None = None
+    BACKEND_URL: str = Field(default="http://localhost:8000")
     FRONTEND_URL: str = Field(default="http://localhost:8080")
 
     # --- Validators to handle blank env values from CI ---
@@ -80,6 +81,7 @@ class Settings(BaseSettings):
         "CRON_SECRET",
         "GITHUB_CLIENT_ID",
         "GITHUB_CLIENT_SECRET",
+        # BACKEND_URL is left out intentionally to allow default when blank
         mode="before",
     )
     def _blank_to_none_str(cls, v):  # noqa: N805

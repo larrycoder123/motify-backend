@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 import requests
+from urllib.parse import urlencode
 from app.core.config import settings
 
 
@@ -45,7 +46,8 @@ class GitHubOAuthProvider(OAuthProvider):
         self.client_id = settings.GITHUB_CLIENT_ID
         self.client_secret = settings.GITHUB_CLIENT_SECRET
         # OAuth callback must go to backend first, then backend redirects to frontend
-        self.redirect_uri = "http://localhost:8000/oauth/callback/github"
+        base = settings.BACKEND_URL or "http://localhost:8000"
+        self.redirect_uri = f"{base.rstrip('/')}/oauth/callback/github"
         self.scope = "user:email"
 
     def get_provider_name(self) -> str:
@@ -59,8 +61,7 @@ class GitHubOAuthProvider(OAuthProvider):
             "scope": self.scope,
             "state": state,
         }
-        query = "&".join([f"{k}={v}" for k, v in params.items()])
-        return f"https://github.com/login/oauth/authorize?{query}"
+        return f"https://github.com/login/oauth/authorize?{urlencode(params)}"
 
     def exchange_code_for_token(self, code: str) -> Dict[str, Any]:
         """Exchange authorization code for GitHub access token."""
