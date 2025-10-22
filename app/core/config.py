@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     # (Removed) Farcaster IdRegistry on Optimism settings
     # Optional override for Neynar "casts by user" endpoint URL
     FARCASTER_USER_CASTS_URL: str | None = None
+    # Wakatime
+    WAKATIME_API_BASE_URL: str = "https://api.wakatime.com/api/v1/" # Default base URL
 
     # --- Validators to handle blank env values from CI ---
     @field_validator("MAX_FEE_GWEI", mode="before")
