@@ -26,7 +26,11 @@ def create_app() -> FastAPI:
             "http://localhost:8080",
             "http://127.0.0.1:8080",
             "https://motify-nine.vercel.app",
-            "https://*.vercel.app",  # Add this for preview deployments
+            # Note: Starlette doesn't support wildcard entries here; use allow_origin_regex or manual middleware below
+            # "https://*.vercel.app",  # handled by manual middleware below
+            # Production frontend domains
+            "https://motify.live",
+            "https://www.motify.live",
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -46,6 +50,9 @@ def create_app() -> FastAPI:
             "http://localhost:8080",
             "http://127.0.0.1:8080",
             "https://motify-nine.vercel.app",
+            # Production frontend domains
+            "https://motify.live",
+            "https://www.motify.live",
         ]
         
         if origin in allowed_origins or (origin and origin.endswith(".vercel.app")):
