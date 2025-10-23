@@ -311,6 +311,10 @@ def _render_oauth_result_html(
 
     import json
     result_json = json.dumps(result_data)
+    
+    # Determine status class for styling
+    status_class = "success" if success else "error"
+    status_text = "Authentication Successful!" if success else "Authentication Failed"
 
     html_content = f"""
     <!DOCTYPE html>
@@ -318,43 +322,118 @@ def _render_oauth_result_html(
     <head>
         <title>OAuth {'Success' if success else 'Error'}</title>
         <style>
+            * {{
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+
             body {{
-                font-family: system-ui, -apple-system, sans-serif;
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                min-height: 100vh;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                height: 100vh;
-                margin: 0;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
+                background: hsl(222.2 84% 4.9%);
+                color: hsl(210 40% 98%);
+                padding: 1rem;
             }}
+
             .container {{
+                max-width: 28rem;
+                width: 100%;
                 text-align: center;
+            }}
+
+            .card {{
+                background: linear-gradient(to bottom right, 
+                    hsl(222.2 47.4% 11.2%), 
+                    hsl(222.2 47.4% 11.2% / 0.5));
+                border: 1px solid hsl(217.2 32.6% 17.5% / 0.5);
+                border-radius: 0.75rem;
                 padding: 2rem;
-                background: rgba(255, 255, 255, 0.1);
-                border-radius: 1rem;
-                backdrop-filter: blur(10px);
+                box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+                transition: border-color 0.2s;
             }}
+
+            .icon-container {{
+                width: 4rem;
+                height: 4rem;
+                margin: 0 auto 1.5rem;
+                border-radius: 0.75rem;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }}
+
+            .icon-container.success {{
+                background: hsl(142.1 76.2% 36.3% / 0.1);
+            }}
+
+            .icon-container.error {{
+                background: hsl(0 84.2% 60.2% / 0.1);
+            }}
+
             .spinner {{
-                border: 3px solid rgba(255, 255, 255, 0.3);
+                border: 3px solid hsl(217.2 32.6% 17.5%);
                 border-radius: 50%;
-                border-top: 3px solid white;
-                width: 40px;
-                height: 40px;
+                border-top-color: hsl(210 40% 98%);
+                width: 2.5rem;
+                height: 2.5rem;
                 animation: spin 1s linear infinite;
-                margin: 0 auto 1rem;
             }}
+
+            .checkmark, .cross {{
+                width: 2.5rem;
+                height: 2.5rem;
+            }}
+
+            .checkmark {{
+                color: hsl(142.1 76.2% 36.3%);
+            }}
+
+            .cross {{
+                color: hsl(0 84.2% 60.2%);
+            }}
+
             @keyframes spin {{
                 0% {{ transform: rotate(0deg); }}
                 100% {{ transform: rotate(360deg); }}
+            }}
+
+            h2 {{
+                font-size: 1.875rem;
+                font-weight: 700;
+                margin-bottom: 0.75rem;
+                line-height: 1.2;
+            }}
+
+            p {{
+                color: hsl(215 20.2% 65.1%);
+                font-size: 1rem;
+                line-height: 1.5;
+            }}
+
+            .success-text {{
+                color: hsl(142.1 76.2% 36.3%);
+            }}
+
+            .error-text {{
+                color: hsl(0 84.2% 60.2%);
             }}
         </style>
     </head>
     <body>
         <div class="container">
-            <div class="spinner"></div>
-            <h2>{'Authentication successful!' if success else 'Authentication failed'}</h2>
-            <p>Redirecting back to Motify...</p>
+            <div class="card">
+                <div class="icon-container {status_class}">
+                    <div class="spinner"></div>
+                </div>
+                <h2 class="{status_class}-text">
+                    {status_text}
+                </h2>
+                <p>Redirecting back to Motify...</p>
+            </div>
         </div>
         <script>
             (function() {{
@@ -363,8 +442,18 @@ def _render_oauth_result_html(
                 // Store result in localStorage so the main app can read it
                 localStorage.setItem('oauth_result', JSON.stringify(result));
                 
+                // Update icon after a moment
+                setTimeout(() => {{
+                    const spinner = document.querySelector('.spinner');
+                    if (spinner) {{
+                        const success = {str(success).lower()};
+                        spinner.outerHTML = success 
+                            ? '<svg class="checkmark" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
+                            : '<svg class="cross" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+                    }}
+                }}, 500);
+                
                 // Redirect back to the main app
-                // The main app will check localStorage on mount and process the result
                 setTimeout(() => {{
                     window.location.href = '{settings.FRONTEND_URL}/oauth/result';
                 }}, 1500);
