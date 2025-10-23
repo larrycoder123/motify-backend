@@ -55,11 +55,19 @@ A GitHub Actions workflow runs end-to-end processing every 15 minutes, capturing
 
 **All OAuth connect and disconnect operations require wallet signature verification** to prevent unauthorized users from linking/unlinking credentials to wallets they don't own.
 
+### Wallet Support
+
+The backend supports both:
+- **EOA wallets** (MetaMask, Ledger, etc.) - 65-byte ECDSA signatures
+- **Smart contract wallets** (Base Wallet, Coinbase Smart Wallet, etc.) - ERC-1271/ERC-6492 signatures
+
+No changes needed in your frontend - the backend automatically detects and verifies the appropriate signature format.
+
 ### Signature Requirements
 
 When calling `/oauth/connect` or `/oauth/disconnect`, you must provide:
 1. `wallet_address` - The wallet address
-2. `signature` - EIP-191 signature of the message
+2. `signature` - Wallet signature (supports both EOA and smart wallet formats)
 3. `timestamp` - Unix timestamp (must be within 5 minutes)
 
 ### Message Format
@@ -74,18 +82,47 @@ Connect OAuth provider {provider} to wallet {wallet_address} at {timestamp}
 Disconnect OAuth provider {provider} from wallet {wallet_address} at {timestamp}
 ```
 
-### Frontend Example (using ethers.js)
+### Frontend Examples
 
+**Using Base Wallet:**
 ```javascript
+import { createBaseAccountSDK } from '@base-org/account';
+
+const provider = createBaseAccountSDK().getProvider();
+const accounts = await provider.request({ method: 'eth_requestAccounts' });
+const timestamp = Math.floor(Date.now() / 1000);
+const message = `Connect OAuth provider github to wallet ${accounts[0].toLowerCase()} at ${timestamp}`;
+const signature = await provider.request({
+  method: 'personal_sign',
+  params: [message, accounts[0]]
+});
+
+// Signature will be 1000+ bytes (ERC-1271/ERC-6492) - this is normal!
+fetch(`/oauth/connect/github?wallet_address=${accounts[0]}&signature=${signature}&timestamp=${timestamp}`);
+```
+
+**Using MetaMask (still supported):**
+```javascript
+const signer = await provider.getSigner();
 const timestamp = Math.floor(Date.now() / 1000);
 const message = `Connect OAuth provider github to wallet ${address.toLowerCase()} at ${timestamp}`;
 const signature = await signer.signMessage(message);
 
-// Now call the API with signature
+// Signature will be 65 bytes
 fetch(`/oauth/connect/github?wallet_address=${address}&signature=${signature}&timestamp=${timestamp}`);
 ```
 
-See `examples/frontend_oauth_integration.js` for complete implementation examples with wagmi hooks.
+See `examples/base_wallet_oauth_integration.js` for complete Base Wallet integration and `examples/frontend_oauth_integration.js` for MetaMask examples.
+
+### Configuration for Smart Wallets
+
+To support smart wallet signatures, set in `.env`:
+```bash
+WEB3_RPC_URL=https://mainnet.base.org  # or https://sepolia.base.org for testnet
+ENV=production  # or 'development' for testnet
+```
+
+📖 **For detailed migration guide and troubleshooting, see:** `docs/BASE_WALLET_OAUTH.md`
 
 ## Notes
 - CORS for dev allows localhost. Add your production frontend origin in `app/main.py` if needed.
