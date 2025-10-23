@@ -46,7 +46,7 @@ def main() -> int:
     chunk_size = _int_env("CHUNK_SIZE", 200)
     # Default to dry-run unless explicitly enabled.
     # Accept both SEND_TX and TX_SEND env flags for convenience.
-    send_flag = os.getenv("SEND_TX") or os.getenv("TX_SEND") or "false"
+    send_flag = os.getenv("SEND_TX") or os.getenv("TX_SEND") or "true"
     send = str(send_flag).lower() in {"1", "true", "yes"}
 
     # 1) Refresh cache from chain (ended & not-finalized only)
