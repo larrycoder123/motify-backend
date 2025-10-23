@@ -10,6 +10,8 @@ from app.api.routes_oauth import router as oauth_router
 from app.core.config import settings
 from app.services import indexer
 from fastapi import Header
+from app.services.chain_reader import ChainReader
+from app.services import chain_writer
 
 
 def create_app() -> FastAPI:
@@ -81,6 +83,73 @@ def create_app() -> FastAPI:
             return {"ok": True, "index": out, "details": det}
         except Exception as e:
             logging.error("job_index_and_cache error: %s", e)
+            return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+    @app.get("/jobs/debug-config")
+    async def job_debug_config(x_cron_secret: str | None = Header(default=None, alias="x-cron-secret")):
+        expected = (settings.CRON_SECRET or "").strip()
+        if expected:
+            if (x_cron_secret or "").strip() != expected:
+                return JSONResponse(status_code=401, content={"ok": False, "error": "unauthorized"})
+        import os
+        send_flag = os.getenv("SEND_TX") or os.getenv("TX_SEND") or "false"
+        send_eval = str(send_flag).lower() in {"1", "true", "yes"}
+        return {
+            "ok": True,
+            "env": {
+                "SEND_TX": os.getenv("SEND_TX"),
+                "TX_SEND": os.getenv("TX_SEND"),
+            },
+            "send_eval": send_eval,
+            "default_percent_ppm": settings.DEFAULT_PERCENT_PPM,
+        }
+
+    @app.post("/jobs/declare-preview/{challenge_id}")
+    async def job_declare_preview(challenge_id: int, x_cron_secret: str | None = Header(default=None, alias="x-cron-secret"), include_items: bool = False):
+        """Build declare payload for a challenge without sending transactions.
+
+        This previews the exact chunks and ppm values that would be used.
+        Protected with x-cron-secret.
+        """
+        expected = (settings.CRON_SECRET or "").strip()
+        if expected:
+            if (x_cron_secret or "").strip() != expected:
+                return JSONResponse(status_code=401, content={"ok": False, "error": "unauthorized"})
+        try:
+            # Prepare items as the processor does
+            preview = indexer.prepare_run(challenge_id, default_percent_ppm=settings.DEFAULT_PERCENT_PPM)
+            items = list(preview.get("items") or [])
+
+            # Restrict to pending participants by reading on-chain state
+            pending_addrs_lc: set[str] = set()
+            reader = ChainReader.from_settings()
+            if reader is not None:
+                detail = reader.get_challenge_detail(challenge_id)
+                for p in (detail.get("participants") or []):
+                    if not p.get("result_declared"):
+                        pending_addrs_lc.add(str(p.get("participant_address")).lower())
+            if pending_addrs_lc:
+                items = [it for it in items if str(it.get("user")).lower() in pending_addrs_lc]
+
+            # Build declare payload without sending
+            dec = {"dry_run": True, "payload": {"challenge_id": challenge_id, "chunks": []}, "tx_hashes": []}
+            if items:
+                dec = chain_writer.declare_results(challenge_id, items, chunk_size=200, send=False)
+            resp = {"ok": True, "challenge_id": challenge_id, "items": len(items), "declare": dec}
+            if include_items:
+                # include trimmed details to expose progress vs fallback
+                resp["items_detail"] = [
+                    {
+                        "user": it.get("user"),
+                        "stake_minor_units": it.get("stake_minor_units"),
+                        "percent_ppm": it.get("percent_ppm"),
+                        "progress_ratio": it.get("progress_ratio"),
+                    }
+                    for it in items
+                ]
+            return resp
+        except Exception as e:
+            logging.error("job_declare_preview error: %s", e)
             return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
     @app.exception_handler(Exception)
