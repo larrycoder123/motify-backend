@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     # OAuth providers
     GITHUB_CLIENT_ID: str | None = None
     GITHUB_CLIENT_SECRET: str | None = None
-    BACKEND_URL: str = Field(default="http://localhost:8000")
-    FRONTEND_URL: str = Field(default="http://localhost:8080")
+    BACKEND_URL: str = Field(default="https://motify-backend-3k55.onrender.com")
+    FRONTEND_URL: str = Field(default="https://motify.live")
     # Default fallback percent (in PPM) when progress cannot be fetched
     # 1_000_000 PPM = 100%
     DEFAULT_PERCENT_PPM: int = 1_000_000
