@@ -13,6 +13,12 @@ jobs:
   process-ready:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      # Non-secret: table/column names used to look up per-user provider tokens in Supabase
+      USER_TOKENS_TABLE: user_tokens
+      USER_TOKENS_WALLET_COL: wallet_address
+      USER_TOKENS_PROVIDER_COL: provider
+      USER_TOKENS_ACCESS_TOKEN_COL: access_token
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,6 +32,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: "Preflight: token lookup config"
+        run: |
+          echo "USER_TOKENS_TABLE=${USER_TOKENS_TABLE}"
+          echo "USER_TOKENS_WALLET_COL=${USER_TOKENS_WALLET_COL}"
+          echo "USER_TOKENS_PROVIDER_COL=${USER_TOKENS_PROVIDER_COL}"
+          echo "USER_TOKENS_ACCESS_TOKEN_COL=${USER_TOKENS_ACCESS_TOKEN_COL}"
 
       - name: Process ready challenges
         env:
