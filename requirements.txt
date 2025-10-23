@@ -8,3 +8,5 @@ supabase
 python-dotenv
 web3
 eth-account
+eth-utils
+eth-abi
