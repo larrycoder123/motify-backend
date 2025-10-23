@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # EIP-1559 fee controls (preferred). If set, will use these values instead of auto-estimate.
     MAX_FEE_GWEI: float | None = None
     GAS_LIMIT: int | None = None
-    # Token decimals for stake values (e.g., USDC=6)
+    # Toke n decimals for stake values (e.g., USDC=6)
     STAKE_TOKEN_DECIMALS: int = 6
     # Progress token lookup (optional, for provider API calls)
     USER_TOKENS_TABLE: str | None = None
