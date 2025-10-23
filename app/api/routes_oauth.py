@@ -13,7 +13,7 @@ Flow:
 5. Optional disconnect: DELETE /oauth/disconnect/{provider}/{wallet_address}
 """
 from fastapi import APIRouter, HTTPException, Query, Header
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, HTMLResponse
 from typing import Optional
 from datetime import datetime, timedelta
 import secrets
@@ -208,22 +208,24 @@ async def oauth_callback(
 ):
     """
     OAuth callback endpoint. Exchanges code for token and stores credentials.
-
-    This endpoint will redirect the user back to the frontend with success/error status.
+    Returns HTML that communicates with the frontend without causing a full page reload.
     """
     # Validate state
     state_data = _state_store.pop(state, None)
     if not state_data:
-        # Redirect to frontend with error
-        return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/oauth/result?success=false&error=invalid_state"
+        return _render_oauth_result_html(
+            success=False,
+            error="invalid_state",
+            provider=provider
         )
 
     # Check state expiry (10 minutes)
     created_at = state_data["created_at"]
     if (datetime.utcnow() - created_at).total_seconds() > 600:
-        return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/oauth/result?success=false&error=expired_state"
+        return _render_oauth_result_html(
+            success=False,
+            error="expired_state",
+            provider=provider
         )
 
     wallet_address = state_data["wallet_address"]
@@ -232,8 +234,10 @@ async def oauth_callback(
     # Get OAuth provider
     oauth_provider = oauth_service.get_provider(provider_name)
     if not oauth_provider:
-        return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/oauth/result?success=false&error=invalid_provider"
+        return _render_oauth_result_html(
+            success=False,
+            error="invalid_provider",
+            provider=provider_name
         )
 
     try:
@@ -248,34 +252,129 @@ async def oauth_callback(
         # Store token in database
         db = SupabaseDAL.from_env()
         if not db:
-            raise Exception("Database not configured")
+            return _render_oauth_result_html(
+                success=False,
+                error="database_error",
+                provider=provider_name
+            )
 
         # Prepare data for storage
         now = datetime.utcnow()
         expires_at = None
         if token_data.get("expires_in"):
-            expires_at = now + timedelta(seconds=token_data["expires_in"])
+            expires_at = (now + timedelta(seconds=token_data["expires_in"])).isoformat()
 
         db.upsert_user_token({
-            "wallet_address": wallet_address,
+            "wallet_address": wallet_address.lower(),
             "provider": provider_name,
             "access_token": token_data["access_token"],
             "refresh_token": token_data.get("refresh_token"),
-            "expires_at": expires_at.isoformat() if expires_at else None,
+            "expires_at": expires_at,
             "scopes": token_data.get("scopes", []),
             "updated_at": now.isoformat(),
         })
 
-        # Redirect to frontend with success
-        return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/oauth/result?success=true&provider={provider_name}"
+        return _render_oauth_result_html(
+            success=True,
+            provider=provider_name,
+            wallet_address=wallet_address
         )
 
     except Exception as e:
         logging.error(f"OAuth callback error: {e}")
-        return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/oauth/result?success=false&error=token_exchange_failed"
+        return _render_oauth_result_html(
+            success=False,
+            error="token_exchange_failed",
+            provider=provider_name
         )
+
+
+def _render_oauth_result_html(
+    success: bool,
+    provider: str,
+    error: str | None = None,
+    wallet_address: str | None = None
+) -> HTMLResponse:
+    """
+    Render HTML page that communicates OAuth result back to the main app.
+    Uses localStorage to pass data between this page and the main app.
+    """
+    result_data = {
+        "success": success,
+        "provider": provider,
+        "timestamp": int(datetime.utcnow().timestamp() * 1000)
+    }
+    if error:
+        result_data["error"] = error
+    if wallet_address:
+        result_data["wallet_address"] = wallet_address
+
+    import json
+    result_json = json.dumps(result_data)
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>OAuth {'Success' if success else 'Error'}</title>
+        <style>
+            body {{
+                font-family: system-ui, -apple-system, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+            }}
+            .container {{
+                text-align: center;
+                padding: 2rem;
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 1rem;
+                backdrop-filter: blur(10px);
+            }}
+            .spinner {{
+                border: 3px solid rgba(255, 255, 255, 0.3);
+                border-radius: 50%;
+                border-top: 3px solid white;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 1rem;
+            }}
+            @keyframes spin {{
+                0% {{ transform: rotate(0deg); }}
+                100% {{ transform: rotate(360deg); }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="spinner"></div>
+            <h2>{'Authentication successful!' if success else 'Authentication failed'}</h2>
+            <p>Redirecting back to Motify...</p>
+        </div>
+        <script>
+            (function() {{
+                const result = {result_json};
+                
+                // Store result in localStorage so the main app can read it
+                localStorage.setItem('oauth_result', JSON.stringify(result));
+                
+                // Redirect back to the main app
+                // The main app will check localStorage on mount and process the result
+                setTimeout(() => {{
+                    window.location.href = '{settings.FRONTEND_URL}/oauth/result';
+                }}, 1500);
+            }})();
+        </script>
+    </body>
+    </html>
+    """
+    
+    return HTMLResponse(content=html_content)
 
 
 @router.delete("/disconnect/{provider}/{wallet_address}")
