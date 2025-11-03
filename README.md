@@ -1,5 +1,3 @@
----
-
 # Motify Backend
 
 The backend service for Motify — a decentralized accountability platform that monitors user progress via external APIs (GitHub, Farcaster, WakaTime) and settles refunds on-chain through automated smart contract interactions.
