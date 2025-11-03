@@ -1,55 +1,341 @@
-# Motify Backend (Minimal)
+<div align="center">
 
-A slim FastAPI backend exposing health and stats endpoints, plus internal jobs and services to index on-chain data, compute progress off-chain, declare results on-chain, and archive.
+[//]: # "Add your logo here if available"
+![Logo](docs/bannerMotify_white.svg)
 
-## Endpoints
-- GET `/health` → `{ ok: true, db: bool }`
-- GET `/stats/user?address=0x...` → Aggregated archived stats for a wallet
+</div>
 
-### OAuth Endpoints (Signature Required)
-- GET `/oauth/status/{provider}/{wallet_address}` → Check if wallet has valid OAuth credentials (no signature required)
-- GET `/oauth/connect/{provider}?wallet_address=0x...&signature=0x...&timestamp=123` → Initiate OAuth flow (requires wallet signature)
-- GET `/oauth/callback/{provider}?code=...&state=...` → OAuth callback (redirects to frontend)
-- DELETE `/oauth/disconnect/{provider}/{wallet_address}?signature=0x...&timestamp=123` → Remove OAuth credentials (requires wallet signature)
-- GET `/oauth/providers` → List available OAuth providers (no signature required)
+---
 
-## Local development (Windows)
-1. python -m venv .venv
-2. .venv\Scripts\activate
-3. pip install -r requirements.txt
-4. python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+# Motify Backend
 
-Run tests:
-- pytest -q
+The backend service for Motify — a decentralized accountability platform that monitors user progress via external APIs (GitHub, Farcaster, WakaTime) and settles refunds on-chain through automated smart contract interactions.
 
-## Required env (vary by use)
-- SUPABASE_URL
-- SUPABASE_SERVICE_ROLE_KEY (server only)
-- WEB3_RPC_URL (for jobs that read/write chain)
-- MOTIFY_CONTRACT_ADDRESS
-- PRIVATE_KEY (only if sending transactions)
-- MAX_FEE_GWEI (optional EIP-1559 fee cap)
-- STAKE_TOKEN_DECIMALS (default 6)
-- DEFAULT_PERCENT_PPM (optional default progress)
-- CRON_SECRET (optional, to secure any job endpoints)
-- GITHUB_CLIENT_ID (for GitHub OAuth)
-- GITHUB_CLIENT_SECRET (for GitHub OAuth)
-- FRONTEND_URL (for OAuth redirects, default: http://localhost:8080)
-- NEYNAR_API_KEY (for Farcaster progress checks)
+This repository provides:
+- **REST API** for health checks, user statistics, and OAuth token management
+- **Background Jobs** for indexing challenges, computing progress, and declaring results on Base (L2 Ethereum)
+- **Progress Engines** that integrate with GitHub, Farcaster (via Neynar), and WakaTime to verify goal completion
 
-See `.env.example` for placeholders (do not commit real secrets).
+---
 
-## Deploy to Render
-One-click with `render.yaml`:
-- Create a new Web Service from this repo.
-- Environment: Python
-- Build Command: `pip install --upgrade pip && pip install -r requirements.txt`
-- Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Set env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, MOTIFY_CONTRACT_ADDRESS, WEB3_RPC_URL.
-  - For API-only hosting, you don't need PRIVATE_KEY.
+## Table of Contents
 
-## Scheduled processing
-A GitHub Actions workflow runs end-to-end processing every 15 minutes, capturing logs as artifacts. Update secrets in repo settings for: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, WEB3_RPC_URL, MOTIFY_CONTRACT_ADDRESS, PRIVATE_KEY (if SEND_TX=true), MAX_FEE_GWEI (optional).
+- [Overview](#overview)
+- [Other Repositories](#other-repositories)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [How It Works](#how-it-works)
+- [API Endpoints](#api-endpoints)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Progress Engines](#progress-engines)
+- [OAuth Security](#oauth-security)
+- [Deployment](#deployment)
+- [Scheduled Processing](#scheduled-processing)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Overview
+
+Motify enables users to create and participate in blockchain-verified challenges with real stakes (USDC). The backend automates the entire accountability lifecycle:
+
+1. **Index** ended challenges from the Motify smart contract
+2. **Fetch Progress** from external APIs based on each challenge's activity type
+3. **Compute Refunds** as percentages based on goal completion (0–100%)
+4. **Declare Results** on-chain via `declareResults()` transaction
+5. **Archive** processed data for user statistics and historical records
+
+By separating progress verification (off-chain APIs) from settlement (on-chain execution), Motify ensures transparency, trustlessness, and real-world accountability.
+
+---
+
+## Other Repositories
+
+- **[Smart Contracts](https://github.com/etaaa/motify-smart-contracts):** Challenge and token contracts deployed on Base (L2 Ethereum)
+- **[Frontend](https://github.com/your-username/motify-frontend):** React-based dApp built as a Base Mini App, providing the user interface for creating, joining, and tracking challenges
+
+---
+
+## Features
+
+- **Multi-Provider Progress Tracking**: Supports GitHub (commits/contributions), Farcaster (casts), and WakaTime (coding time)
+- **Automated On-Chain Settlement**: Declares results and processes refunds via EIP-1559 transactions with configurable fee caps
+- **OAuth Integration**: Secure token management with wallet signature verification (supports EOA and smart contract wallets)
+- **Flexible Fallback Logic**: Protects users during API outages with configurable default refund percentages
+- **Real-Time Statistics**: Provides aggregated user stats (challenges participated, success rate, total refunds)
+- **Dry-Run Mode**: Test entire pipeline without sending transactions
+- **Safety Guards**: Skips sending if all progress is missing or if reconciliation detects on-chain state changes
+
+---
+
+## Tech Stack
+
+- **Framework**: [FastAPI](https://fastapi.tiangolo.com/)
+- **Database**: [Supabase](https://supabase.com/) (Postgres)
+- **Blockchain**: [Web3.py](https://web3py.readthedocs.io/) with EIP-1559 support
+- **APIs**: GitHub GraphQL, Neynar (Farcaster), WakaTime REST
+- **Deployment**: [Render](https://render.com/) for API hosting, [GitHub Actions](https://github.com/features/actions) for scheduled jobs
+- **Testing**: [pytest](https://pytest.org/)
+
+---
+
+## How It Works
+
+### Workflow (Every 15 Minutes via GitHub Actions)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. INDEXING                                                    │
+│     - Fetch ended challenges from Motify smart contract        │
+│     - Cache challenge + participant data in Supabase           │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  2. PROGRESS FETCHING                                           │
+│     - Look up OAuth tokens from user_tokens table              │
+│     - Call provider API based on challenge api_type:           │
+│       • GitHub: GraphQL contributions calendar                 │
+│       • Farcaster: Neynar API for casts                        │
+│       • WakaTime: Summaries API for coding hours               │
+│     - Compute ratio (0.0–1.0) based on goal completion         │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  3. ON-CHAIN DECLARATION                                        │
+│     - Convert ratios to refund percentages (parts-per-million) │
+│     - Call declareResults(challengeId, participants[], %)      │
+│     - Use EIP-1559 with MAX_FEE_GWEI cap                       │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  4. ARCHIVAL                                                    │
+│     - Move processed data to finished_challenges table         │
+│     - Store tx hashes, ratios, and refund amounts              │
+│     - Clean up working cache                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Safety Mechanisms
+
+- **Progress Missing Guard**: Skips sending if all participants have `progress_ratio=None` (API outage)
+- **On-Chain Reconciliation**: Checks contract state to avoid duplicate declares
+- **Configurable Fallback**: `DEFAULT_PERCENT_PPM` protects users when individual progress can't be fetched (defaults to 100%)
+- **Dry-Run Mode**: Set `SEND_TX=false` to preview payloads without blockchain writes
+
+---
+
+## API Endpoints
+
+### Public
+- `GET /health` → Health check with database connectivity status
+- `GET /stats/user?address=0x...` → Aggregated statistics for a wallet (challenges participated, success rate, total refunds)
+- `GET /oauth/providers` → List available OAuth providers (github, wakatime)
+
+### OAuth (Signature Required)
+- `GET /oauth/status/{provider}/{wallet_address}` → Check if wallet has valid credentials
+- `GET /oauth/connect/{provider}?wallet_address=0x...&signature=0x...&timestamp=123` → Initiate OAuth flow
+- `GET /oauth/callback/{provider}?code=...&state=...` → OAuth callback (redirects to frontend)
+- `DELETE /oauth/disconnect/{provider}/{wallet_address}?signature=0x...&timestamp=123` → Remove credentials
+
+*All OAuth connect/disconnect operations require wallet signature verification (supports EOA and smart contract wallets).*
+
+## Installation
+
+### Prerequisites
+- Python 3.11+
+- Virtual environment tool (venv)
+- PostgreSQL database (we use Supabase)
+- Base RPC endpoint (for blockchain interactions)
+
+### Local Setup (Windows)
+
+```bash
+# 1. Create virtual environment
+python -m venv .venv
+
+# 2. Activate environment
+.venv\Scripts\activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Copy environment template
+copy .env.example .env
+
+# 5. Configure .env (see Configuration section)
+
+# 6. Start development server
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+### Running Tests
+
+```bash
+pytest -q
+```
+
+---
+
+## Configuration
+
+Create a `.env` file in the project root with the following variables:
+
+### Required (Core)
+```env
+# Database
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# Blockchain
+WEB3_RPC_URL=https://mainnet.base.org
+MOTIFY_CONTRACT_ADDRESS=0x...
+MOTIFY_CONTRACT_ABI_PATH=./abi/Motify.json
+
+# Transaction Signing (only if SEND_TX=true)
+PRIVATE_KEY=0x...
+```
+
+### Required (OAuth)
+```env
+# GitHub OAuth
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
+
+# Neynar (for Farcaster progress)
+NEYNAR_API_KEY=your-neynar-api-key
+
+# Frontend URL (for OAuth redirects)
+FRONTEND_URL=https://your-frontend-url.com
+BACKEND_URL=https://your-backend-url.com
+```
+
+### Optional
+```env
+# EIP-1559 Fee Control
+MAX_FEE_GWEI=1.0  # Max fee per gas in Gwei
+
+# Token Configuration
+STAKE_TOKEN_DECIMALS=6  # USDC has 6 decimals
+
+# Fallback Behavior
+DEFAULT_PERCENT_PPM=1000000  # 100% refund when progress unavailable
+
+# Job Security
+CRON_SECRET=random-secret-for-job-endpoints
+
+# WakaTime API
+WAKATIME_API_BASE_URL=https://api.wakatime.com/api/v1/
+
+# Token Lookup (auto-configured in GitHub Actions)
+USER_TOKENS_TABLE=user_tokens
+USER_TOKENS_WALLET_COL=wallet_address
+USER_TOKENS_PROVIDER_COL=provider
+USER_TOKENS_ACCESS_TOKEN_COL=access_token
+
+# Environment
+ENV=development  # or 'production'
+```
+
+See `.env.example` for a complete template.
+
+---
+
+## Usage
+
+### Start API Server
+
+```bash
+.venv\Scripts\activate
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+API will be available at `http://127.0.0.1:8000`
+
+### Run Background Job Locally
+
+```bash
+# Dry-run (no transactions)
+python -m app.jobs.process_ready_all
+
+# Live run (sends transactions)
+SEND_TX=true python -m app.jobs.process_ready_all
+```
+
+### Quick Health Check
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+---
+
+## Deployment
+
+### Render (API Server)
+
+One-click deployment using `render.yaml`:
+
+1. Create a new Web Service from this repository
+2. Render will auto-detect `render.yaml` and configure:
+   - **Environment**: Python 3.11
+   - **Build**: `pip install --upgrade pip && pip install -r requirements.txt`
+   - **Start**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+3. Set environment variables in Render dashboard:
+   ```
+   SUPABASE_URL
+   SUPABASE_SERVICE_ROLE_KEY
+   WEB3_RPC_URL
+   MOTIFY_CONTRACT_ADDRESS
+   GITHUB_CLIENT_ID
+   GITHUB_CLIENT_SECRET
+   NEYNAR_API_KEY
+   FRONTEND_URL
+   BACKEND_URL
+   ```
+
+*Note: For API-only hosting (no transaction signing), you don't need `PRIVATE_KEY`.*
+
+---
+
+## Scheduled Processing
+
+### GitHub Actions (Background Jobs)
+
+The `.github/workflows/process-ready.yml` workflow runs every 15 minutes to:
+1. Fetch ended challenges from the blockchain
+2. Compute progress from external APIs
+3. Declare results on-chain (if `SEND_TX=true`)
+4. Archive processed data
+
+**Required GitHub Secrets:**
+```
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+WEB3_RPC_URL
+MOTIFY_CONTRACT_ADDRESS
+PRIVATE_KEY              # For transaction signing
+NEYNAR_API_KEY           # For Farcaster progress
+SEND_TX=true             # Enable on-chain writes
+MAX_FEE_GWEI             # Optional fee cap
+DEFAULT_PERCENT_PPM      # Optional fallback (default: 1000000)
+```
+
+**Workflow Features:**
+- Runs on schedule (`cron: '*/15 * * * *'`) and manual dispatch
+- Captures full logs as downloadable artifacts (14-day retention)
+- Preflight checks for token lookup configuration
+- Automatic retry on transient failures
+
+**View Logs:**
+1. Go to Actions tab in GitHub
+2. Select latest "Process ready challenges" run
+3. Download `process-ready-log` artifact
+
+---
 
 ## OAuth Security
 
@@ -124,15 +410,13 @@ ENV=production  # or 'development' for testnet
 
 📖 **For detailed migration guide and troubleshooting, see:** `docs/BASE_WALLET_OAUTH.md`
 
-## Notes
-- CORS for dev allows localhost. Add your production frontend origin in `app/main.py` if needed.
-- Supabase schema stub lives in `docs/schema.sql`.
-- ABI at `abi/Motify.json`.
-- OAuth operations use EIP-191 signatures for wallet ownership verification.
+---
 
-## Progress engines
+## Progress Engines
 
-### GitHub (contribution per day)
+The backend supports three activity types for challenge verification:
+
+### GitHub (Commits/Contributions Per Day)
 - Uses GitHub GraphQL contributions calendar to count per-day contributions in the challenge window.
 - Requires a token per wallet stored in Supabase `user_tokens` with `provider=github` and `access_token` set to the GitHub token.
 - Scope: with `user:email`, only public contributions are counted; to include private, request `repo` scope and reconnect.
@@ -179,4 +463,50 @@ if api_key:
     print('No FID found (no Farcaster verification) → fallback will apply')
 else:
   print('Set NEYNAR_API_KEY to test Farcaster progress')
+
+# WakaTime
+wakatime_key = 'waka_...'  # Your WakaTime API key
+tokens = {addr.lower(): wakatime_key}
+participants = [{'participant_address': addr}]
+window = (int(start.strftime('%s')), int(end.strftime('%s')))
+result = _progress_wakatime(tokens, participants, window=window, goal_type='coding-time', goal_amount=10)
+print(f'WakaTime result: {result}')
 ```
+
+---
+
+## Additional Resources
+
+- **Database Schema**: `docs/schema.sql` - Supabase table definitions
+- **Smart Contract ABI**: `abi/Motify.json` - Contract interface for Web3 calls
+- **OAuth Examples**:
+  - `examples/base_wallet_oauth_integration.js` - Base Wallet signature examples
+  - `examples/frontend_oauth_integration.js` - MetaMask integration examples
+- **Architecture Docs**: `docs/ARCHITECTURE.md` - Detailed system design
+- **Base Wallet Guide**: `docs/BASE_WALLET_OAUTH.md` - Smart wallet migration guide
+
+---
+
+## Notes
+
+- **CORS**: Dev environment allows `localhost`. Production origins are configured in `app/main.py` (currently includes `https://motify.live` and `https://www.motify.live`)
+- **Signature Verification**: OAuth operations use EIP-191 (EOA) or ERC-1271/ERC-6492 (smart wallets) for wallet ownership verification
+- **Timezone**: All progress engines use UTC for consistency. GitHub and Farcaster use UTC days; WakaTime queries with `timezone=UTC`
+- **Fallback Protection**: Set `DEFAULT_PERCENT_PPM=1000000` to protect users during API outages (defaults to 100% refund when progress unavailable)
+
+---
+
+## Contributing
+
+We welcome contributions! Please:
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## License
+
+This project is licensed under the MIT License.
