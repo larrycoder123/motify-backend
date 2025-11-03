@@ -55,7 +55,7 @@ By separating progress verification (off-chain APIs) from settlement (on-chain e
 ## Other Repositories
 
 - **[Smart Contracts](https://github.com/etaaa/motify-smart-contracts):** Challenge and token contracts deployed on Base (L2 Ethereum)
-- **[Frontend](https://github.com/your-username/motify-frontend):** React-based dApp built as a Base Mini App, providing the user interface for creating, joining, and tracking challenges
+- **[Frontend](https://github.com/eliaslehner/Motify):** React-based dApp built as a Base Mini App, providing the user interface for creating, joining, and tracking challenges
 
 ---
 
