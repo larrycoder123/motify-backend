@@ -1,10 +1,3 @@
-<div align="center">
-
-[//]: # "Add your logo here if available"
-![Logo](docs/bannerMotify_white.svg)
-
-</div>
-
 ---
 
 # Motify Backend
