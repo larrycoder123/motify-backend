@@ -1,12 +1,3 @@
-<div align="center">
-
-[//]: # "Add your logo here if available"
-![Logo](docs/bannerMotify_white.svg)
-
-</div>
-
----
-
 # Motify Backend
 
 The backend service for Motify — a decentralized accountability platform that monitors user progress via external APIs (GitHub, Farcaster, WakaTime) and settles refunds on-chain through automated smart contract interactions.
@@ -55,7 +46,7 @@ By separating progress verification (off-chain APIs) from settlement (on-chain e
 ## Other Repositories
 
 - **[Smart Contracts](https://github.com/etaaa/motify-smart-contracts):** Challenge and token contracts deployed on Base (L2 Ethereum)
-- **[Frontend](https://github.com/your-username/motify-frontend):** React-based dApp built as a Base Mini App, providing the user interface for creating, joining, and tracking challenges
+- **[Frontend](https://github.com/eliaslehner/Motify):** React-based dApp built as a Base Mini App, providing the user interface for creating, joining, and tracking challenges
 
 ---
 
