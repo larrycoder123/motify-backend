@@ -2,12 +2,6 @@
 
 > **A Web3 Accountability App Built on Base**
 
-[![Demo Video](https://img.shields.io/badge/YouTube-Demo_Video-red?logo=youtube)](https://youtu.be/7yhsUFMNui4?si=MOPQ7W9MtYeelZBL)
-[![Live Product](https://img.shields.io/badge/🌐-motify.live-blue)](https://motify.live/)
-[![Devfolio](https://img.shields.io/badge/Devfolio-Project_Page-purple)](https://devfolio.co/projects/test-a97f)
-
----
-
 ## 🎬 Demo Video
 
 [![Motify Demo](https://img.youtube.com/vi/7yhsUFMNui4/maxresdefault.jpg)](https://youtu.be/7yhsUFMNui4?si=MOPQ7W9MtYeelZBL)
@@ -28,9 +22,21 @@
 
 ---
 
+## 🔗 Links & Resources
+
+| Resource | Link |
+|----------|------|
+| 🎬 Demo Video | [YouTube](https://youtu.be/7yhsUFMNui4?si=MOPQ7W9MtYeelZBL) |
+| 🌐 Live Product | [motify.live](https://motify.live/) |
+| 📋 Devfolio Application | [Project Page](https://devfolio.co/projects/test-a97f) |
+| 💻 Frontend Repo | [GitHub](https://github.com/eliaslehner/Motify) |
+| 📜 Smart Contracts | [GitHub](https://github.com/etaaa/motify-smart-contracts) |
+
+---
+
 ## 💡 Motivation – How It All Started
 
-The project started during **Start Hackathon Vienna**, where Base (by Coinbase) provided a real-world case challenge:
+The project started during **Start Hackathon Vienna**, where Base (by Coinbase) provided a real-world case challenge to work in **36 hours**:
 
 > **Build a meaningful product on the Base ecosystem.**
 
@@ -63,6 +69,10 @@ Our motivation was to:
   - 🎖 **Top 50 projects selected globally**
   - 💰 **$5,000 Builder Grant from Base**
   - 🚀 Live MVP & demo deployed
+
+<p align="center">
+  <img src="images/Buildathon.jpg" width="100%" alt="Buildathon Photo 1" />
+</p>
 
 ### 3️⃣ MVP & Live Product
 
@@ -98,7 +108,7 @@ Our motivation was to:
 
 ## 👥 Team & Responsibilities
 
-### **Michael (Michi) Bösch** – Backend & Integration
+### **Michi** – Backend & Integration
 
 **Responsibilities:**
 - Backend architecture & API design
@@ -152,18 +162,6 @@ Our motivation was to:
 
 ---
 
-## 🔗 Links & Resources
-
-| Resource | Link |
-|----------|------|
-| 🎬 Demo Video | [YouTube](https://youtu.be/7yhsUFMNui4?si=MOPQ7W9MtYeelZBL) |
-| 🌐 Live Product | [motify.live](https://motify.live/) |
-| 📋 Devfolio Application | [Project Page](https://devfolio.co/projects/test-a97f) |
-| 💻 Frontend Repo | [GitHub](https://github.com/eliaslehner/Motify) |
-| 📜 Smart Contracts | [GitHub](https://github.com/etaaa/motify-smart-contracts) |
-
----
-
 ## 💬 Final Takeaway
 
-> Motify evolved from a **hackathon idea into a funded MVP**, demonstrating how fast experimentation, clear role separation, and strong technical ownership can lead to real outcomes in the Web3 ecosystem.
+> Motify evolved from a **hackathon idea into a funded MVP**, demonstrating how fast an idea and experimentation can lead to real outcomes. It was a pleasure going on this journey, learning new things on the technical side, but also from a business perspective. 
