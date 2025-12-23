@@ -1,5 +1,7 @@
 # Motify Backend
 
+> 🏆 **Hackathon Winner & Top 50 Global** — See [PROJECT_SHOWCASE.md](PROJECT_SHOWCASE.md) for our journey from Start Hackathon Vienna to the Base Global Buildathon.
+
 The backend service for Motify — a decentralized accountability platform that monitors user progress via external APIs (GitHub, Farcaster, WakaTime) and settles refunds on-chain through automated smart contract interactions.
 
 This repository provides:
