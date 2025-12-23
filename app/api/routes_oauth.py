@@ -1,46 +1,49 @@
-# api/routes_oauth.py
 """
 OAuth routes for linking user wallet addresses with provider accounts.
 
+Supports GitHub OAuth and WakaTime API key authentication for progress tracking.
+
 Flow:
 1. Frontend checks status: GET /oauth/status/{provider}/{wallet_address}
-2. If no credentials, initiate: GET /oauth/connect/{provider}?wallet_address=0x...
-   - Returns auth_url to redirect user to provider (e.g., GitHub)
+2. If no credentials, initiate: GET /oauth/connect/{provider}?wallet_address=...
+   - Returns auth_url to redirect user to provider
 3. User authorizes on provider site
 4. Provider redirects to: GET /oauth/callback/{provider}?code=...&state=...
    - Backend exchanges code for token and stores in DB
    - Redirects user back to frontend with success/error
 5. Optional disconnect: DELETE /oauth/disconnect/{provider}/{wallet_address}
 """
-from fastapi import APIRouter, HTTPException, Query, Header
-from fastapi.responses import RedirectResponse, HTMLResponse
-from typing import Optional
-from datetime import datetime, timedelta
-import secrets
-import logging
 
-from app.models.db import SupabaseDAL
-from app.services.oauth import oauth_service
+import logging
+import secrets
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import HTMLResponse
+
 from app.core.config import settings
 from app.core.security import verify_wallet_signature
+from app.models.db import SupabaseDAL
+from app.services.oauth import oauth_service
 
 router = APIRouter(prefix="/oauth", tags=["oauth"])
 
-# Simple in-memory state storage (for production, use Redis or DB)
+# In-memory state storage for OAuth CSRF protection
+# Note: For multi-instance deployments, use Redis or database storage
 _state_store: dict[str, dict] = {}
 
-@router.get("/wakatime/api-key/{wallet_address}") # Get API key status
-async def get_wakatime_api_key_status(
-    wallet_address: str,
-):
-    """
-    Check if a wallet address has a Wakatime API key stored.
-    """
+
+# =============================================================================
+# WakaTime API Key Endpoints
+# =============================================================================
+
+@router.get("/wakatime/api-key/{wallet_address}")
+async def get_wakatime_api_key_status(wallet_address: str):
+    """Check if a wallet address has a WakaTime API key stored."""
     db = SupabaseDAL.from_env()
     if not db:
         raise HTTPException(status_code=503, detail="Database not configured")
 
-    # Look up token in database (stored as 'wakatime' provider)
     token_data = db.get_user_token(wallet_address, "wakatime")
     has_api_key = token_data is not None and token_data.get("access_token") is not None
 
@@ -50,39 +53,35 @@ async def get_wakatime_api_key_status(
         "wallet_address": wallet_address.lower(),
     }
 
-@router.post("/wakatime/api-key") # Save or update API key
-async def save_wakatime_api_key(
-    request: dict, # Using dict for simplicity, could define a Pydantic model
-):
+
+@router.post("/wakatime/api-key")
+async def save_wakatime_api_key(request: dict):
     """
-    Save or update the Wakatime API key for a wallet address.
-    Request body should contain 'wallet_address' and 'api_key'.
+    Save or update the WakaTime API key for a wallet address.
+    
+    Request body: {"wallet_address": "0x...", "api_key": "waka_..."}
     """
     wallet_address = request.get("wallet_address")
     api_key = request.get("api_key")
 
     if not wallet_address or not api_key:
-         raise HTTPException(status_code=400, detail="wallet_address and api_key are required")
+        raise HTTPException(status_code=400, detail="wallet_address and api_key are required")
 
-    # Basic validation of API key format (starts with 'waka_')
     if not api_key.startswith("waka_"):
-        raise HTTPException(status_code=400, detail="Invalid Wakatime API key format")
+        raise HTTPException(status_code=400, detail="Invalid WakaTime API key format")
 
     db = SupabaseDAL.from_env()
     if not db:
         raise HTTPException(status_code=503, detail="Database not configured")
 
-    # Prepare data for storage
     now = datetime.utcnow()
-    # Store the API key in the 'access_token' field for the 'wakatime' provider
-    # Wakatime keys don't expire like OAuth tokens, so we don't set expires_at
     db.upsert_user_token({
         "wallet_address": wallet_address.lower(),
-        "provider": "wakatime", # Use 'wakatime' as the provider string
-        "access_token": api_key, # Store the raw API key string
-        "refresh_token": None, # API keys don't have refresh tokens
-        "expires_at": None, # API keys don't expire
-        "scopes": ["read_stats"], # Define scopes if relevant, otherwise leave empty or as default
+        "provider": "wakatime",
+        "access_token": api_key,
+        "refresh_token": None,
+        "expires_at": None,
+        "scopes": ["read_stats"],
         "updated_at": now.isoformat(),
     })
 
@@ -92,19 +91,14 @@ async def save_wakatime_api_key(
         "wallet_address": wallet_address.lower(),
     }
 
-# Optional: Add a route to delete the API key
+
 @router.delete("/wakatime/api-key/{wallet_address}")
-async def remove_wakatime_api_key(
-    wallet_address: str,
-):
-    """
-    Remove the Wakatime API key for a wallet address.
-    """
+async def remove_wakatime_api_key(wallet_address: str):
+    """Remove the WakaTime API key for a wallet address."""
     db = SupabaseDAL.from_env()
     if not db:
         raise HTTPException(status_code=503, detail="Database not configured")
 
-    # Delete token entry for 'wakatime' provider
     db.delete_user_token(wallet_address, "wakatime")
 
     return {
@@ -113,37 +107,38 @@ async def remove_wakatime_api_key(
         "wallet_address": wallet_address.lower(),
     }
 
+
+# =============================================================================
+# OAuth Status & Connection Endpoints
+# =============================================================================
+
 @router.get("/status/{provider}/{wallet_address}")
 async def check_oauth_status(provider: str, wallet_address: str):
     """
     Check if a wallet address has valid OAuth credentials for a provider.
-
+    
     Returns:
-        - has_credentials: bool - whether valid credentials exist
-        - provider: str - the provider name
-        - wallet_address: str - the wallet address
+        has_credentials: Whether valid credentials exist
+        provider: The provider name
+        wallet_address: The wallet address
     """
     db = SupabaseDAL.from_env()
     if not db:
         raise HTTPException(status_code=503, detail="Database not configured")
 
-    # Check if provider is supported
     if not oauth_service.get_provider(provider):
-        raise HTTPException(
-            status_code=400, detail=f"Provider '{provider}' not supported")
+        raise HTTPException(status_code=400, detail=f"Provider '{provider}' not supported")
 
-    # Look up token in database
     token_data = db.get_user_token(wallet_address, provider)
 
     has_credentials = False
     if token_data:
-        # Check if token is still valid (if expires_at is set)
         if token_data.get("expires_at"):
             expires_at = datetime.fromisoformat(
-                token_data["expires_at"].replace("Z", "+00:00"))
+                token_data["expires_at"].replace("Z", "+00:00")
+            )
             has_credentials = expires_at > datetime.utcnow()
         else:
-            # No expiry means token is valid (like GitHub)
             has_credentials = True
 
     return {

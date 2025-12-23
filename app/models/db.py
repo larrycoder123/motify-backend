@@ -1,32 +1,51 @@
+"""
+Supabase Data Access Layer (DAL).
+
+Provides methods for interacting with the Supabase database, including
+challenge/participant caching and OAuth token management.
+"""
+
 from __future__ import annotations
 
-from typing import Optional, List, Dict, Any
-from supabase import create_client, Client
+from typing import Any, Dict, List, Optional
+
+from supabase import Client, create_client
+
 from app.core.config import settings
 
 
 class SupabaseDAL:
+    """Data access layer for Supabase operations."""
+
     def __init__(self, url: str, key: str):
         self.client: Client = create_client(url, key)
 
     @classmethod
     def from_env(cls) -> Optional["SupabaseDAL"]:
-        if settings.SUPABASE_URL and (settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY):
+        """Create DAL instance from environment variables."""
+        if settings.SUPABASE_URL and (
+            settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY
+        ):
             key = settings.SUPABASE_SERVICE_ROLE_KEY or settings.SUPABASE_ANON_KEY
             return cls(settings.SUPABASE_URL, key)
         return None
 
+    # =========================================================================
+    # Challenge Operations
+    # =========================================================================
+
     def upsert_chain_challenges(self, items: List[Dict[str, Any]]) -> Any:
+        """Upsert challenge data from chain into cache table."""
         if not items:
             return {"count": 0}
-        # on_conflict by (contract_address, challenge_id)
         return (
             self.client.table("chain_challenges")
             .upsert(items, on_conflict="contract_address,challenge_id")
             .execute()
         )
 
-    def upsert_chain_participants(self, items: List[Dict[str, Any]]):
+    def upsert_chain_participants(self, items: List[Dict[str, Any]]) -> Any:
+        """Upsert participant data from chain into cache table."""
         if not items:
             return {"count": 0}
         return (
@@ -35,7 +54,8 @@ class SupabaseDAL:
             .execute()
         )
 
-    def upsert_finished_challenges(self, items: List[Dict[str, Any]]):
+    def upsert_finished_challenges(self, items: List[Dict[str, Any]]) -> Any:
+        """Archive processed challenge data."""
         if not items:
             return {"count": 0}
         return (
@@ -44,7 +64,8 @@ class SupabaseDAL:
             .execute()
         )
 
-    def upsert_finished_participants(self, items: List[Dict[str, Any]]):
+    def upsert_finished_participants(self, items: List[Dict[str, Any]]) -> Any:
+        """Archive processed participant data with refund percentages."""
         if not items:
             return {"count": 0}
         return (
@@ -53,7 +74,8 @@ class SupabaseDAL:
             .execute()
         )
 
-    def delete_chain_challenge(self, contract_address: str, challenge_id: int):
+    def delete_chain_challenge(self, contract_address: str, challenge_id: int) -> Any:
+        """Remove challenge from cache after archiving."""
         return (
             self.client
             .table("chain_challenges")
@@ -63,7 +85,8 @@ class SupabaseDAL:
             .execute()
         )
 
-    def delete_chain_participants(self, contract_address: str, challenge_id: int):
+    def delete_chain_participants(self, contract_address: str, challenge_id: int) -> Any:
+        """Remove participants from cache after archiving."""
         return (
             self.client
             .table("chain_participants")
@@ -73,7 +96,10 @@ class SupabaseDAL:
             .execute()
         )
 
-    # OAuth / user_tokens methods
+    # =========================================================================
+    # OAuth Token Operations
+    # =========================================================================
+
     def get_user_token(self, wallet_address: str, provider: str) -> Optional[Dict[str, Any]]:
         """Get OAuth token for a wallet address and provider."""
         result = (

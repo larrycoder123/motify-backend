@@ -389,8 +389,6 @@ const signature = await signer.signMessage(message);
 fetch(`/oauth/connect/github?wallet_address=${address}&signature=${signature}&timestamp=${timestamp}`);
 ```
 
-See `examples/base_wallet_oauth_integration.js` for complete Base Wallet integration and `examples/frontend_oauth_integration.js` for MetaMask examples.
-
 ### Configuration for Smart Wallets
 
 To support smart wallet signatures, set in `.env`:
@@ -398,8 +396,6 @@ To support smart wallet signatures, set in `.env`:
 WEB3_RPC_URL=https://mainnet.base.org  # or https://sepolia.base.org for testnet
 ENV=production  # or 'development' for testnet
 ```
-
-📖 **For detailed migration guide and troubleshooting, see:** `docs/BASE_WALLET_OAUTH.md`
 
 ---
 
@@ -468,13 +464,10 @@ print(f'WakaTime result: {result}')
 
 ## Additional Resources
 
+- **Project Showcase**: `PROJECT_SHOWCASE.md` - Hackathon journey, achievements, and team
+- **Architecture Docs**: `ARCHITECTURE.md` - Detailed system design and data flows
 - **Database Schema**: `docs/schema.sql` - Supabase table definitions
 - **Smart Contract ABI**: `abi/Motify.json` - Contract interface for Web3 calls
-- **OAuth Examples**:
-  - `examples/base_wallet_oauth_integration.js` - Base Wallet signature examples
-  - `examples/frontend_oauth_integration.js` - MetaMask integration examples
-- **Architecture Docs**: `docs/ARCHITECTURE.md` - Detailed system design
-- **Base Wallet Guide**: `docs/BASE_WALLET_OAUTH.md` - Smart wallet migration guide
 
 ---
 
