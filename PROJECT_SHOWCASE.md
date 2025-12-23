@@ -71,7 +71,7 @@ Our motivation was to:
   - 🚀 Live MVP & demo deployed
 
 <p align="center">
-  <img src="images/Buildathon.jpg" width="100%" alt="Buildathon Photo 1" />
+  <img src="images/Buildathon.jpg" width="50%" alt="Buildathon Photo 1" />
 </p>
 
 ### 3️⃣ MVP & Live Product
