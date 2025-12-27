@@ -2,10 +2,6 @@
 
 > **A Web3 Accountability App Built on Base**
 
-[![Demo Video](https://img.shields.io/badge/YouTube-Demo_Video-red?logo=youtube)](https://youtu.be/7yhsUFMNui4?si=MOPQ7W9MtYeelZBL)
-[![Live Product](https://img.shields.io/badge/🌐-motify.live-blue)](https://motify.live/)
-[![Devfolio](https://img.shields.io/badge/Devfolio-Project_Page-purple)](https://devfolio.co/projects/test-a97f)
-
 ---
 
 ## 🎬 Demo Video
